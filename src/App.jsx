@@ -7,7 +7,6 @@ import {
   Minus,
   PartyPopper,
   Trophy,
-  Flame,
   GlassWater,
   Coffee,
   Leaf,
@@ -36,6 +35,7 @@ const DRINK_TYPES = [
   { id: 'juice', label: 'Juice', icon: CupSoda, color: '#FF8C42' },
   { id: 'milk', label: 'Milk', icon: Milk, color: '#EADFC8' },
 ]
+const DRINK_BY_COLOR = Object.fromEntries(DRINK_TYPES.map((d) => [d.color, d]))
 
 /* ---------------------------- color helpers ---------------------------- */
 function hexToRgb(hex) {
@@ -323,40 +323,76 @@ const AccountButton = memo(function AccountButton({ onClick }) {
     <motion.button
       onClick={onClick}
       whileTap={{ scale: 0.9 }}
-      className="flex flex-row-reverse items-center gap-2 bg-white/80 backdrop-blur px-3.5 py-2 rounded-full shadow-card"
+      className="w-11 h-11 shrink-0 rounded-full bg-white/80 backdrop-blur shadow-card flex items-center justify-center"
+      aria-label="Account"
     >
-      <UserCircle2 className="w-4.5 h-4.5 text-aqua-deep" />
-      <span className="font-body text-xs font-bold text-ink hidden xs:inline">Account</span>
+      <UserCircle2 className="w-5 h-5 text-aqua-deep" />
     </motion.button>
   )
 })
 
-// Insights button — expands with a fire icon + streak count once the user has one.
-const InsightsButton = memo(function InsightsButton({ onClick, streak }) {
+// Insights button — a circular progress ring showing today's hydration %
+// wraps the button. Before any streak it shows a chart icon in the middle;
+// once a streak exists, the icon is replaced by the streak number itself.
+const InsightsButton = memo(function InsightsButton({ onClick, streak, current, goal }) {
+  const size = 44
+  const stroke = 3.5
+  const r = (size - stroke) / 2
+  const circumference = 2 * Math.PI * r
+  const pct = goal > 0 ? Math.max(0, Math.min(1, current / goal)) : 0
+
   return (
     <motion.button
-      layout
       onClick={onClick}
       whileTap={{ scale: 0.9 }}
-      transition={{ type: 'spring', stiffness: 400, damping: 26 }}
-      className="flex items-center gap-2 bg-white/80 backdrop-blur px-3.5 py-2 rounded-full shadow-card overflow-hidden"
+      className="relative shrink-0"
+      style={{ width: size, height: size }}
+      aria-label="Insights"
     >
-      <BarChart3 className="w-4.5 h-4.5 text-aqua-deep shrink-0" />
-      <span className="font-body text-xs font-bold text-ink hidden xs:inline">Insights</span>
-      <AnimatePresence initial={false}>
-        {streak > 0 && (
-          <motion.span
-            key="streak"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 'auto', opacity: 1 }}
-            exit={{ width: 0, opacity: 0 }}
-            className="flex items-center gap-1 pl-2 ml-0.5 border-l border-ink/10 whitespace-nowrap"
-          >
-            <Flame className="w-4 h-4 text-coral" fill="currentColor" />
-            <span className="font-body text-xs font-black text-coral-deep">{streak}</span>
-          </motion.span>
-        )}
-      </AnimatePresence>
+      <svg width={size} height={size} className="absolute inset-0 -rotate-90" viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#FFFFFF" strokeOpacity="0.55" strokeWidth={stroke} />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="#FF7B6B"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={false}
+          animate={{ strokeDashoffset: circumference * (1 - pct) }}
+          transition={{ type: 'spring', stiffness: 90, damping: 20 }}
+        />
+      </svg>
+
+      <div className="absolute inset-[3.5px] rounded-full bg-white/80 backdrop-blur shadow-card flex items-center justify-center overflow-hidden">
+        <AnimatePresence mode="wait" initial={false}>
+          {streak > 0 ? (
+            <motion.span
+              key="streak"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.5, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+              className="font-body text-sm font-black text-coral-deep leading-none"
+            >
+              {streak}
+            </motion.span>
+          ) : (
+            <motion.span
+              key="icon"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.5, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+              className="flex"
+            >
+              <BarChart3 className="w-4.5 h-4.5 text-aqua-deep" />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </div>
     </motion.button>
   )
 })
@@ -364,7 +400,7 @@ const InsightsButton = memo(function InsightsButton({ onClick, streak }) {
 // Swipeable date pill — lives in the top bar between Insights and Account,
 // same height/style as those. Swipe left goes forward a day (back to today),
 // swipe right goes back a day. No visible arrow buttons anymore.
-const DatePill = memo(function DatePill({ selectedDate, isToday, amount, goal, onNext, onPrev }) {
+const DatePill = memo(function DatePill({ selectedDate, isToday, onNext, onPrev }) {
   const label = useMemo(() => formatDateLabel(selectedDate), [selectedDate])
 
   const handleDragEnd = useCallback(
@@ -386,22 +422,19 @@ const DatePill = memo(function DatePill({ selectedDate, isToday, amount, goal, o
       dragElastic={0.5}
       onDragEnd={handleDragEnd}
       whileTap={{ scale: 0.97 }}
-      className="flex-1 min-w-0 bg-white/80 backdrop-blur px-3.5 py-2 rounded-full shadow-card flex items-center justify-center touch-pan-y cursor-grab active:cursor-grabbing overflow-hidden"
+      className="flex-1 min-w-0 h-11 bg-white/80 backdrop-blur rounded-full shadow-card flex items-center justify-center touch-pan-y cursor-grab active:cursor-grabbing overflow-hidden"
     >
       <AnimatePresence mode="wait">
-        <motion.div
+        <motion.span
           key={label}
           initial={{ opacity: 0, x: 14 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -14 }}
           transition={{ duration: 0.18 }}
-          className="flex items-baseline gap-1.5 whitespace-nowrap"
+          className="font-hand text-lg text-ink leading-none whitespace-nowrap"
         >
-          <span className="font-hand text-base text-ink leading-none">{label}</span>
-          <span className="font-body text-[10px] text-inkSoft font-bold leading-none">
-            {Math.round(amount)}/{goal}oz
-          </span>
-        </motion.div>
+          {label}
+        </motion.span>
       </AnimatePresence>
     </motion.div>
   )
@@ -413,13 +446,14 @@ const DatePill = memo(function DatePill({ selectedDate, isToday, amount, goal, o
 const Bubbles = memo(function Bubbles() {
   const bubbles = useMemo(
     () =>
-      Array.from({ length: 12 }, (_, i) => ({
+      Array.from({ length: 18 }, (_, i) => ({
         id: i,
         left: Math.random() * 100,
-        size: 6 + Math.random() * 16,
-        duration: 10 + Math.random() * 10,
+        size: 8 + Math.random() * 20,
+        duration: 9 + Math.random() * 9,
         delay: Math.random() * -18, // negative delay = already mid-flight on load
-        drift: (Math.random() - 0.5) * 60,
+        drift: (Math.random() - 0.5) * 70,
+        hue: Math.random() > 0.5 ? 'bg-white/50' : 'bg-aqua-light/40',
       })),
     []
   )
@@ -428,7 +462,7 @@ const Bubbles = memo(function Bubbles() {
       {bubbles.map((b) => (
         <span
           key={b.id}
-          className="absolute rounded-full bg-white/40 bubble-rise"
+          className={`absolute rounded-full bubble-rise ${b.hue}`}
           style={{
             left: `${b.left}%`,
             width: b.size,
