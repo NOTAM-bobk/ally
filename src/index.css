@@ -6,6 +6,10 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+button {
+  touch-action: manipulation;
+}
+
 html, body, #root {
   height: 100%;
   overscroll-behavior-y: contain;
