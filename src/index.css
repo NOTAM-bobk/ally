@@ -48,6 +48,30 @@ body {
   animation: waveScroll 10s linear infinite reverse;
 }
 
+/* Subtle bubbles drifting up from the bottom of the screen */
+@keyframes bubbleRise {
+  0% {
+    transform: translate(0, 0) scale(0.8);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.55;
+  }
+  88% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate(var(--drift), -120vh) scale(1.15);
+    opacity: 0;
+  }
+}
+
+.bubble-rise {
+  animation-name: bubbleRise;
+  animation-timing-function: ease-in;
+  animation-iteration-count: infinite;
+}
+
 /* Handwritten wobble on hover/press for playful elements */
 .hand-wobble {
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
