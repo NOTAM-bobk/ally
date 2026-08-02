@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useId, useEffect, memo, lazy, Suspense } from 'react'
+import { useState, useCallback, useMemo, useId, useEffect, useRef, memo, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   BarChart3,
@@ -13,6 +13,8 @@ import {
   Milk,
   CupSoda,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import Onboarding from './Onboarding.jsx'
 
@@ -175,10 +177,9 @@ const Droplet = memo(function Droplet({ amount }) {
   )
 })
 
-const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
+const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onRemoveDrink }) {
   const clipId = useId()
   const gradId = useId()
-  const fillClipId = useId()
   const ratio = goal > 0 ? current / goal : 0
   const pct = Math.max(0, Math.min(1, ratio)) // visual fill can't exceed a full glass
   const fillHeight = 236 * pct
@@ -189,31 +190,25 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
   const topStop = superHydrated ? '#FFE29A' : '#8FE3EE'
   let bottomStop = superHydrated ? '#E8A83B' : '#1C7293'
   // A light overall shift toward whatever's been logged, on top of the
-  // distinct floating color bubbles below.
+  // distinct marker lines below.
   if (tint && tint.color && !superHydrated) {
     bottomStop = mixColors(bottomStop, tint.color, Math.min(0.32, tint.weight))
   }
 
-  // One softly-floating colored bubble per drink type logged today. Size
-  // reflects how much of that drink was logged; position/drift is derived
-  // deterministically from the color so it doesn't jump around on re-render.
-  const blobs = useMemo(() => {
-    const entries = Object.entries(drinkMix || {})
-    return entries.map(([color, oz], i) => {
-      const seed = color.split('').reduce((a, c) => a + c.charCodeAt(0), 0) + i * 31
-      const rand = (n) => Math.abs(Math.sin(seed * (n + 1.7))) // stable pseudo-random 0-1
-      const r = 14 + Math.min(30, (oz / goal) * 70)
-      return {
-        color,
-        r,
-        cx: 45 + rand(1) * 100,
-        cy: 90 + rand(2) * 120,
-        dx: 8 + rand(3) * 16,
-        dy: 8 + rand(4) * 16,
-        duration: 7 + rand(5) * 7,
-      }
+  // A thin line for each non-water drink poured today, sitting at the water
+  // level it was poured at (not the current level) — so later water added on
+  // top submerges it instead of pushing it back up to the surface.
+  const markers = useMemo(() => {
+    return (drinkEntries || []).map((entry) => {
+      const clampedOz = Math.max(0, Math.min(entry.atOz, current))
+      const markerRatio = goal > 0 ? clampedOz / goal : 0
+      const y = 252 - 236 * Math.min(1, markerRatio)
+      return { ...entry, drink: DRINK_BY_COLOR[entry.color], y }
     })
-  }, [drinkMix, goal])
+  }, [drinkEntries, current, goal])
+
+  const [activeEntryId, setActiveEntryId] = useState(null)
+  const activeMarker = markers.find((m) => m.id === activeEntryId) || null
 
   // The "Goal reached!" pill shows itself for a few seconds, then goes away
   // on its own even if you're still at/above goal.
@@ -260,15 +255,6 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
           <clipPath id={clipId}>
             <path d={CUP_PATH} />
           </clipPath>
-          <clipPath id={fillClipId}>
-            <motion.rect
-              x="0"
-              width="200"
-              initial={false}
-              animate={{ y: fillY, height: fillHeight + 20 }}
-              transition={{ type: 'spring', stiffness: 120, damping: 18 }}
-            />
-          </clipPath>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={topStop} />
             <stop offset="100%" stopColor={bottomStop} />
@@ -287,25 +273,6 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
             transition={{ type: 'spring', stiffness: 120, damping: 18 }}
           />
 
-          {/* colored bubbles for whatever's actually been logged, confined to the current water level */}
-          <g clipPath={`url(#${fillClipId})`}>
-            {blobs.map((b) => (
-              <motion.circle
-                key={b.color}
-                r={b.r}
-                fill={b.color}
-                opacity={0.5}
-                style={{ mixBlendMode: 'multiply' }}
-                initial={false}
-                animate={{
-                  cx: [b.cx, b.cx + b.dx, b.cx - b.dx * 0.6, b.cx],
-                  cy: [b.cy, b.cy - b.dy, b.cy + b.dy * 0.7, b.cy],
-                }}
-                transition={{ duration: b.duration, repeat: Infinity, ease: 'easeInOut' }}
-              />
-            ))}
-          </g>
-
           <motion.g
             initial={false}
             animate={{ y: fillY }}
@@ -320,6 +287,42 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
           </motion.g>
 
           <ellipse cx="55" cy="60" rx="10" ry="70" fill="#FFFFFF" opacity="0.18" />
+
+          {/* thin pour-level lines for logged non-water drinks — drawn above the
+              wave/highlight so they stay tappable even once water rises over them */}
+          <AnimatePresence>
+            {markers.map((m) => (
+              <motion.g
+                key={m.id}
+                initial={{ opacity: 0, y: 252 }}
+                animate={{ opacity: 1, y: m.y }}
+                exit={{ opacity: 0, scale: 0.6 }}
+                transition={{ type: 'spring', stiffness: 150, damping: 20 }}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setActiveEntryId((id) => (id === m.id ? null : m.id))
+                }}
+              >
+                <path
+                  d="M42 0 C 68 -3, 92 3, 116 0 C 132 -2, 144 2, 154 0"
+                  fill="none"
+                  stroke={m.color}
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  opacity="0.85"
+                />
+                {/* wider invisible stroke = easier tap target than the thin line */}
+                <path
+                  d="M42 0 C 68 -3, 92 3, 116 0 C 132 -2, 144 2, 154 0"
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth="18"
+                />
+                <circle cx="154" cy="0" r="6.5" fill={m.color} stroke="#FFFFFF" strokeWidth="1.5" />
+              </motion.g>
+            ))}
+          </AnimatePresence>
         </g>
 
         <path
@@ -337,6 +340,47 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
           {Math.round(ratio * 100)}%
         </span>
       </div>
+
+      {/* tap-outside backdrop + remove popover for the active marker */}
+      <AnimatePresence>
+        {activeMarker && (
+          <>
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-20"
+              onClick={() => setActiveEntryId(null)}
+            />
+            <motion.div
+              key="popover"
+              initial={{ opacity: 0, scale: 0.85, y: 6 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 6 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 24 }}
+              className="absolute z-30 -translate-x-1/2 -translate-y-full"
+              style={{ left: '77%', top: `${(activeMarker.y / 264) * 100}%`, marginTop: '-10px' }}
+            >
+              <div className="bg-white rounded-2xl shadow-card px-3 py-2 flex flex-col items-center gap-1.5 whitespace-nowrap">
+                <span className="font-body text-xs font-bold text-ink">
+                  {activeMarker.drink?.label || 'Drink'} · {activeMarker.amount} oz
+                </span>
+                <button
+                  onClick={() => {
+                    onRemoveDrink?.(activeMarker.id)
+                    setActiveEntryId(null)
+                  }}
+                  className="hand-wobble flex items-center gap-1 bg-coral text-white text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full"
+                >
+                  <X className="w-3 h-3" strokeWidth={3} />
+                  Remove
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   )
 })
@@ -442,9 +486,43 @@ const InsightsButton = memo(function InsightsButton({ onClick, streak, current, 
 
 // Swipeable date pill — lives in the top bar between Insights and Account,
 // same height/style as those. Swipe left goes forward a day (back to today),
-// swipe right goes back a day. No visible arrow buttons anymore.
-const DatePill = memo(function DatePill({ selectedDate, isToday, onNext, onPrev }) {
+// swipe right goes back a day. Tapping the pill while on a past day jumps
+// straight back to today. A one-time nudge (plus faint permanent chevrons)
+// hints that it's swipeable.
+const DATE_HINT_STORAGE_KEY = 'ally-date-hint-seen'
+
+const DatePill = memo(function DatePill({ selectedDate, isToday, onNext, onPrev, onToday }) {
   const label = useMemo(() => formatDateLabel(selectedDate), [selectedDate])
+
+  const prevDateRef = useRef(selectedDate)
+  const direction = selectedDate > prevDateRef.current ? 1 : selectedDate < prevDateRef.current ? -1 : 0
+  useEffect(() => {
+    prevDateRef.current = selectedDate
+  }, [selectedDate])
+
+  // Teach the swipe gesture once, ever, with a gentle nudge shortly after the
+  // very first load — then never again.
+  const [hint, setHint] = useState(false)
+  useEffect(() => {
+    let seen = true
+    try {
+      seen = !!localStorage.getItem(DATE_HINT_STORAGE_KEY)
+    } catch {
+      seen = true
+    }
+    if (seen) return
+    const t = setTimeout(() => setHint(true), 900)
+    return () => clearTimeout(t)
+  }, [])
+
+  const dismissHint = useCallback(() => {
+    setHint(false)
+    try {
+      localStorage.setItem(DATE_HINT_STORAGE_KEY, '1')
+    } catch {
+      // storage unavailable — fail silently
+    }
+  }, [])
 
   const handleDragEnd = useCallback(
     (_e, info) => {
@@ -458,27 +536,59 @@ const DatePill = memo(function DatePill({ selectedDate, isToday, onNext, onPrev 
     [isToday, onNext, onPrev]
   )
 
+  const variants = {
+    enter: (dir) => ({ opacity: 0, x: dir < 0 ? -14 : 14, scale: 0.94 }),
+    center: { opacity: 1, x: 0, scale: 1 },
+    exit: (dir) => ({ opacity: 0, x: dir < 0 ? 14 : -14, scale: 0.94 }),
+  }
+
   return (
     <motion.div
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.5}
       onDragEnd={handleDragEnd}
+      onDragStart={dismissHint}
+      onTap={() => {
+        dismissHint()
+        if (!isToday) onToday()
+      }}
       whileTap={{ scale: 0.97 }}
-      className="flex-1 min-w-0 h-11 bg-white/80 backdrop-blur rounded-full shadow-card flex items-center justify-center touch-pan-y cursor-grab active:cursor-grabbing overflow-hidden"
+      animate={hint ? { x: [0, -7, 0, 7, 0] } : { x: 0 }}
+      transition={hint ? { duration: 1.1, ease: 'easeInOut' } : { duration: 0.15 }}
+      onAnimationComplete={() => hint && dismissHint()}
+      className="flex-1 min-w-0 h-11 bg-white/80 backdrop-blur rounded-full shadow-card flex items-center justify-center gap-1.5 touch-pan-y cursor-grab active:cursor-grabbing overflow-hidden"
     >
-      <AnimatePresence mode="wait">
+      <motion.span
+        animate={{ opacity: hint ? [0.3, 0.7, 0.3] : 0.3 }}
+        transition={{ duration: 1.1, ease: 'easeInOut' }}
+        className="text-aqua-deep shrink-0"
+      >
+        <ChevronLeft className="w-3 h-3" strokeWidth={3} />
+      </motion.span>
+
+      <AnimatePresence mode="wait" custom={direction}>
         <motion.span
           key={label}
-          initial={{ opacity: 0, x: 14 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -14 }}
-          transition={{ duration: 0.18 }}
+          custom={direction}
+          variants={variants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
           className="font-hand text-lg text-ink leading-none whitespace-nowrap"
         >
           {label}
         </motion.span>
       </AnimatePresence>
+
+      <motion.span
+        animate={{ opacity: isToday ? 0.1 : hint ? [0.3, 0.7, 0.3] : 0.3 }}
+        transition={{ duration: 1.1, ease: 'easeInOut' }}
+        className="text-aqua-deep shrink-0"
+      >
+        <ChevronRight className="w-3 h-3" strokeWidth={3} />
+      </motion.span>
     </motion.div>
   )
 })
@@ -665,6 +775,10 @@ export default function App() {
   // tint toward whatever's actually been added. In-memory only (resets on
   // reload), which is fine since it's a light visual touch, not core data.
   const [drinkMix, setDrinkMix] = useState({})
+  // Individual non-water pours (id/color/amount/atOz), so each can render as
+  // its own line marker in the cup and be removed on its own. In-memory only
+  // (resets on reload), matching drinkMix above.
+  const [otherDrinkEntries, setOtherDrinkEntries] = useState([])
   const [otherDrinksOpen, setOtherDrinksOpen] = useState(false)
 
   // Persist intake history so streaks and past days survive a reload.
@@ -726,24 +840,49 @@ export default function App() {
   // a past day, adding water jumps you back to today so you can see it land.
   const addWater = useCallback(
     (amount, color = null) => {
-      setHistory((h) => {
-        const prevToday = h[todayKey] || 0
-        const nextVal = Math.max(0, Math.min(MAX_DAILY_OZ, prevToday + amount))
-        return { ...h, [todayKey]: nextVal }
-      })
+      const prevToday = history[todayKey] || 0
+      const nextVal = Math.max(0, Math.min(MAX_DAILY_OZ, prevToday + amount))
+      setHistory((h) => ({ ...h, [todayKey]: nextVal }))
       if (amount > 0) {
         spawnToast(amount)
         if (color) {
           setDrinkMix((m) => ({ ...m, [color]: (m[color] || 0) + amount }))
+          setOtherDrinkEntries((entries) => [
+            ...entries,
+            { id: Math.random().toString(36).slice(2), color, amount, atOz: nextVal },
+          ])
         }
       }
       setDayOffset(0)
     },
-    [todayKey, spawnToast]
+    [history, todayKey, spawnToast]
+  )
+
+  // Undoes a single pour: subtracts it from today's total, its share of the
+  // color tint, and its own marker — without touching any other entries.
+  const removeOtherDrink = useCallback(
+    (id) => {
+      const entry = otherDrinkEntries.find((e) => e.id === id)
+      if (!entry) return
+      setOtherDrinkEntries((entries) => entries.filter((e) => e.id !== id))
+      setHistory((h) => ({
+        ...h,
+        [todayKey]: Math.max(0, (h[todayKey] || 0) - entry.amount),
+      }))
+      setDrinkMix((m) => {
+        const nextOz = Math.max(0, (m[entry.color] || 0) - entry.amount)
+        const next = { ...m }
+        if (nextOz > 0) next[entry.color] = nextOz
+        else delete next[entry.color]
+        return next
+      })
+    },
+    [otherDrinkEntries, todayKey]
   )
 
   const goPrevDay = useCallback(() => setDayOffset((d) => Math.min(d + 1, 365)), [])
   const goNextDay = useCallback(() => setDayOffset((d) => Math.max(d - 1, 0)), [])
+  const goToday = useCallback(() => setDayOffset(0), [])
 
   const addOtherDrink = useCallback(
     (amount, color) => {
@@ -783,6 +922,7 @@ export default function App() {
           goal={goal}
           onPrev={goPrevDay}
           onNext={goNextDay}
+          onToday={goToday}
         />
         <AccountButton onClick={openAccount} />
       </div>
@@ -790,7 +930,13 @@ export default function App() {
       {/* cup stage — nudged up a bit via the extra bottom padding below */}
       <div className="flex-1 flex flex-col items-center justify-center relative z-10 px-6 pb-6">
         <div className="relative">
-          <WaterCup current={current} goal={goal} tint={isToday ? tint : null} drinkMix={isToday ? drinkMix : {}} />
+          <WaterCup
+            current={current}
+            goal={goal}
+            tint={isToday ? tint : null}
+            drinkEntries={isToday ? otherDrinkEntries : []}
+            onRemoveDrink={removeOtherDrink}
+          />
 
           <FloatingDrinks open={otherDrinksOpen} step={step} onAdd={addOtherDrink} />
 
