@@ -1,16 +1,44 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, User, Bell, Target, LogOut, ChevronRight, Check } from 'lucide-react'
+import {
+  X,
+  User,
+  Bell,
+  Target,
+  LogOut,
+  ChevronRight,
+  Check,
+  Sliders,
+  GlassWater,
+  FileText,
+  ShieldCheck,
+  Lightbulb,
+  LifeBuoy,
+  ExternalLink,
+} from 'lucide-react'
+import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount, unitShort } from './units.js'
 
 const REMINDERS_STORAGE_KEY = 'ally-reminders'
+// Storage keys owned by App.jsx (units/presets/drink settings) — listed here
+// too so sign-out can clear everything this screen touches.
 const UNITS_STORAGE_KEY = 'ally-units'
-const OZ_TO_ML = 29.5735
+const PRESETS_STORAGE_KEY = 'ally-presets'
+const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
 
 const INTERVAL_OPTIONS = [1, 2, 3, 4, 6]
-const UNIT_OPTIONS = [
-  { id: 'oz', label: 'Ounces (oz)' },
-  { id: 'ml', label: 'Milliliters (mL)' },
+
+// Quick links open in a new tab so nobody loses their place in the app.
+// Swap these placeholder URLs for the real destinations when ready.
+const QUICK_LINKS = [
+  { key: 'terms', label: 'Terms of service', icon: FileText, url: 'https://example.com/terms' },
+  { key: 'privacy', label: 'Privacy policy', icon: ShieldCheck, url: 'https://example.com/privacy' },
+  { key: 'features', label: 'Feature board', icon: Lightbulb, url: 'https://example.com/features' },
+  { key: 'support', label: 'Support', icon: LifeBuoy, url: 'https://example.com/support' },
 ]
+
+function openInNewTab(url) {
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
 
 function loadReminders() {
   try {
@@ -25,21 +53,7 @@ function loadReminders() {
   return { enabled: false, intervalHours: 2 }
 }
 
-function loadUnits() {
-  try {
-    const raw = localStorage.getItem(UNITS_STORAGE_KEY)
-    return raw === 'ml' ? 'ml' : 'oz'
-  } catch {
-    return 'oz'
-  }
-}
-
-function formatOz(oz, units) {
-  if (units === 'ml') return `${Math.round(oz * OZ_TO_ML)} mL`
-  return `${Math.round(oz)} oz`
-}
-
-// Shared bottom-sheet shell for all three settings editors.
+// Shared bottom-sheet shell for every settings editor.
 function SettingsSheet({ title, onClose, children }) {
   return (
     <motion.div
@@ -55,7 +69,7 @@ function SettingsSheet({ title, onClose, children }) {
         exit={{ y: 40, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 320, damping: 28 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-3xl shadow-soft p-6 w-full max-w-xs mb-[max(1.5rem,env(safe-area-inset-bottom))] sm:mb-0 relative"
+        className="bg-white rounded-3xl shadow-soft p-6 w-full max-w-xs mb-[max(1.5rem,env(safe-area-inset-bottom))] sm:mb-0 relative max-h-[85vh] overflow-y-auto"
       >
         <button
           onClick={onClose}
@@ -71,15 +85,17 @@ function SettingsSheet({ title, onClose, children }) {
   )
 }
 
+// goal is always stored/passed in ounces — the slider stays in oz too, it's
+// only the numbers shown to the person that switch with the chosen unit.
 function GoalSheet({ goal, units, onSave, onClose }) {
   const [ozValue, setOzValue] = useState(goal)
-  const displayValue = units === 'ml' ? Math.round(ozValue * OZ_TO_ML) : ozValue
+  const short = unitShort(units)
 
   return (
     <SettingsSheet title="Daily goal" onClose={onClose}>
       <p className="font-body text-4xl font-black text-aqua-deep text-center">
-        {displayValue}
-        <span className="text-lg font-bold text-inkSoft ml-1">{units === 'ml' ? 'mL' : 'oz'}</span>
+        {ozToUnit(ozValue, units)}
+        <span className="text-lg font-bold text-inkSoft ml-1">{short}</span>
       </p>
       <input
         type="range"
@@ -88,12 +104,12 @@ function GoalSheet({ goal, units, onSave, onClose }) {
         step={4}
         value={ozValue}
         onChange={(e) => setOzValue(Number(e.target.value))}
-        aria-label="Daily goal in ounces"
+        aria-label="Daily goal"
         className="w-full mt-5 accent-coral"
       />
       <div className="flex justify-between font-body text-[11px] text-inkSoft font-bold mt-1">
-        <span>{formatOz(48, units)}</span>
-        <span>{formatOz(160, units)}</span>
+        <span>{formatAmount(48, units)}</span>
+        <span>{formatAmount(160, units)}</span>
       </div>
       <motion.button
         whileTap={{ scale: 0.95 }}
@@ -182,57 +198,205 @@ function UnitsSheet({ units, onSave, onClose }) {
   return (
     <SettingsSheet title="Units" onClose={onClose}>
       <div className="flex flex-col gap-2">
-        {UNIT_OPTIONS.map((opt) => (
-          <button
-            key={opt.id}
-            onClick={() => {
-              onSave(opt.id)
-              onClose()
-            }}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border-2 font-body font-bold text-sm ${
-              units === opt.id
-                ? 'bg-aqua-deep text-white border-aqua-deep'
-                : 'bg-mist text-inkSoft border-transparent'
-            }`}
-          >
-            {opt.label}
-            {units === opt.id && <Check className="w-4 h-4" />}
-          </button>
-        ))}
+        {UNIT_ORDER.map((id) => {
+          const def = UNIT_DEFS[id]
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                onSave(id)
+                onClose()
+              }}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border-2 font-body font-bold text-sm ${
+                units === id
+                  ? 'bg-aqua-deep text-white border-aqua-deep'
+                  : 'bg-mist text-inkSoft border-transparent'
+              }`}
+            >
+              {def.label}
+              {units === id && <Check className="w-4 h-4" />}
+            </button>
+          )
+        })}
       </div>
     </SettingsSheet>
   )
 }
 
-// goal is always stored/passed in ounces — units only changes how it's displayed.
-export default function Account({ user, goal = 64, onGoalChange, onClose, onSignOut }) {
-  const [openSheet, setOpenSheet] = useState(null) // null | 'goal' | 'reminders' | 'units'
-  const [reminders, setReminders] = useState(loadReminders)
-  const [units, setUnits] = useState(loadUnits)
-  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+// Lets the person customize each of the three quick-add buttons on the
+// dashboard. Each preset is edited independently, in whatever unit is
+// currently selected, but stored back in ounces like everything else.
+function PresetsSheet({ presets, units, onSave, onClose }) {
+  const [values, setValues] = useState(presets)
+  const short = unitShort(units)
+  const minOz = 4
+  const maxOz = 64
 
-  const saveGoal = (nextOz) => {
-    onGoalChange?.(nextOz)
-    try {
-      localStorage.setItem('ally-goal', String(nextOz))
-    } catch {
-      // storage unavailable — the session still reflects the change via onGoalChange
-    }
+  const updateAt = (index, nextOz) => {
+    setValues((vals) => vals.map((v, i) => (i === index ? nextOz : v)))
   }
+
+  return (
+    <SettingsSheet title="Quick-add presets" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {values.map((oz, i) => (
+          <div key={i} className="bg-mist rounded-2xl px-4 py-3.5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-body font-bold text-xs uppercase tracking-wide text-inkSoft/70">
+                Button {i + 1}
+              </span>
+              <span className="font-body font-black text-aqua-deep text-lg">
+                {ozToUnit(oz, units)} {short}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={minOz}
+              max={maxOz}
+              step={2}
+              value={oz}
+              onChange={(e) => updateAt(i, Number(e.target.value))}
+              aria-label={`Quick-add preset ${i + 1}`}
+              className="w-full accent-coral"
+            />
+          </div>
+        ))}
+      </div>
+      <motion.button
+        whileTap={{ scale: 0.95 }}
+        onClick={() => {
+          onSave(values)
+          onClose()
+        }}
+        className="w-full mt-5 bg-coral text-white font-body font-bold py-3 rounded-full"
+      >
+        Save
+      </motion.button>
+    </SettingsSheet>
+  )
+}
+
+// Lets the person turn individual "other drinks" off (so they stop floating
+// around the cup) and set a custom tap amount for each one that's still on.
+function DrinksSheet({ drinkTypes, drinkSettings, units, onSave, onClose }) {
+  const [settings, setSettings] = useState(drinkSettings)
+  const short = unitShort(units)
+  const minOz = 2
+  const maxOz = 32
+
+  const toggle = (id) => {
+    setSettings((s) => ({ ...s, [id]: { ...s[id], enabled: !s[id]?.enabled } }))
+  }
+  const setStep = (id, nextOz) => {
+    setSettings((s) => ({ ...s, [id]: { ...s[id], step: nextOz } }))
+  }
+
+  return (
+    <SettingsSheet title="Other drinks" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        {drinkTypes.map((drink) => {
+          const Icon = drink.icon
+          const entry = settings[drink.id] || { enabled: true, step: 8 }
+          return (
+            <div key={drink.id} className="bg-mist rounded-2xl px-4 py-3.5">
+              <button
+                onClick={() => toggle(drink.id)}
+                className="w-full flex items-center gap-3"
+              >
+                <div
+                  className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white"
+                  style={{ backgroundColor: drink.color }}
+                >
+                  <Icon className="w-4 h-4" />
+                </div>
+                <span className="flex-1 text-left font-body font-bold text-sm text-ink">{drink.label}</span>
+                <span
+                  className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${
+                    entry.enabled ? 'bg-aqua-deep' : 'bg-ink/15'
+                  }`}
+                >
+                  <motion.span
+                    className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm"
+                    animate={{ left: entry.enabled ? 22 : 2 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+                  />
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {entry.enabled && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between mt-3 mb-1">
+                      <span className="font-body text-[11px] font-bold uppercase tracking-wide text-inkSoft/70">
+                        Adds per tap
+                      </span>
+                      <span className="font-body font-black text-aqua-deep text-sm">
+                        {ozToUnit(entry.step, units)} {short}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={minOz}
+                      max={maxOz}
+                      step={1}
+                      value={entry.step}
+                      onChange={(e) => setStep(drink.id, Number(e.target.value))}
+                      aria-label={`${drink.label} amount per tap`}
+                      className="w-full accent-coral"
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )
+        })}
+      </div>
+      <motion.button
+        whileTap={{ scale: 0.95 }}
+        onClick={() => {
+          onSave(settings)
+          onClose()
+        }}
+        className="w-full mt-5 bg-coral text-white font-body font-bold py-3 rounded-full"
+      >
+        Save
+      </motion.button>
+    </SettingsSheet>
+  )
+}
+
+// goal/units/presets/drinkSettings all live in App and are handed down here
+// as props, with matching onChange callbacks — so any change made in this
+// screen is reflected everywhere else in the app immediately, and survives
+// a reload the same way the rest of the app's settings do.
+export default function Account({
+  user,
+  goal = 64,
+  onGoalChange,
+  units = 'oz',
+  onUnitsChange,
+  presets = [8, 16, 24],
+  onPresetsChange,
+  drinkTypes = [],
+  drinkSettings = {},
+  onDrinkSettingsChange,
+  onClose,
+  onSignOut,
+}) {
+  const [openSheet, setOpenSheet] = useState(null) // null | 'goal' | 'reminders' | 'units' | 'presets' | 'drinks'
+  const [reminders, setReminders] = useState(loadReminders)
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false)
 
   const saveReminders = (next) => {
     setReminders(next)
     try {
       localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(next))
-    } catch {
-      // storage unavailable — setting still applies for this session
-    }
-  }
-
-  const saveUnits = (next) => {
-    setUnits(next)
-    try {
-      localStorage.setItem(UNITS_STORAGE_KEY, next)
     } catch {
       // storage unavailable — setting still applies for this session
     }
@@ -251,6 +415,8 @@ export default function Account({ user, goal = 64, onGoalChange, onClose, onSign
       localStorage.removeItem('ally-step')
       localStorage.removeItem(REMINDERS_STORAGE_KEY)
       localStorage.removeItem(UNITS_STORAGE_KEY)
+      localStorage.removeItem(PRESETS_STORAGE_KEY)
+      localStorage.removeItem(DRINK_SETTINGS_STORAGE_KEY)
     } catch {
       // storage unavailable — still hand off to the parent to reset state
     }
@@ -261,15 +427,29 @@ export default function Account({ user, goal = 64, onGoalChange, onClose, onSign
     }
   }
 
+  const activeDrinkCount = drinkTypes.filter((d) => drinkSettings[d.id]?.enabled !== false).length
+
   const rows = [
-    { key: 'goal', icon: Target, label: 'Daily goal', value: formatOz(goal, units) },
+    { key: 'goal', icon: Target, label: 'Daily goal', value: formatAmount(goal, units) },
     {
       key: 'reminders',
       icon: Bell,
       label: 'Reminders',
       value: reminders.enabled ? `Every ${reminders.intervalHours} hr${reminders.intervalHours > 1 ? 's' : ''}` : 'Off',
     },
-    { key: 'units', icon: User, label: 'Units', value: units === 'ml' ? 'Milliliters (mL)' : 'Ounces (oz)' },
+    { key: 'units', icon: User, label: 'Units', value: UNIT_DEFS[units]?.label || 'Ounces (oz)' },
+    {
+      key: 'presets',
+      icon: Sliders,
+      label: 'Quick-add presets',
+      value: presets.map((oz) => `${ozToUnit(oz, units)}${unitShort(units)}`).join(' · '),
+    },
+    {
+      key: 'drinks',
+      icon: GlassWater,
+      label: 'Other drinks',
+      value: drinkTypes.length ? `${activeDrinkCount} of ${drinkTypes.length} shown` : 'None',
+    },
   ]
 
   return (
@@ -320,9 +500,28 @@ export default function Account({ user, goal = 64, onGoalChange, onClose, onSign
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-body font-bold text-ink text-sm">{label}</p>
-                <p className="font-body text-xs text-inkSoft">{value}</p>
+                <p className="font-body text-xs text-inkSoft truncate">{value}</p>
               </div>
               <ChevronRight className="w-4 h-4 text-ink/30" />
+            </button>
+          ))}
+        </div>
+
+        <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-2 px-1">
+          More
+        </p>
+        <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden mb-6">
+          {QUICK_LINKS.map(({ key, icon: Icon, label, url }) => (
+            <button
+              key={key}
+              onClick={() => openInNewTab(url)}
+              className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
+                <Icon className="w-4.5 h-4.5 text-aqua-deep" />
+              </div>
+              <p className="flex-1 min-w-0 font-body font-bold text-ink text-sm">{label}</p>
+              <ExternalLink className="w-3.5 h-3.5 text-ink/30" />
             </button>
           ))}
         </div>
@@ -344,7 +543,13 @@ export default function Account({ user, goal = 64, onGoalChange, onClose, onSign
 
       <AnimatePresence>
         {openSheet === 'goal' && (
-          <GoalSheet key="goal" goal={goal} units={units} onSave={saveGoal} onClose={() => setOpenSheet(null)} />
+          <GoalSheet
+            key="goal"
+            goal={goal}
+            units={units}
+            onSave={(next) => onGoalChange?.(next)}
+            onClose={() => setOpenSheet(null)}
+          />
         )}
         {openSheet === 'reminders' && (
           <RemindersSheet
@@ -355,7 +560,31 @@ export default function Account({ user, goal = 64, onGoalChange, onClose, onSign
           />
         )}
         {openSheet === 'units' && (
-          <UnitsSheet key="units" units={units} onSave={saveUnits} onClose={() => setOpenSheet(null)} />
+          <UnitsSheet
+            key="units"
+            units={units}
+            onSave={(next) => onUnitsChange?.(next)}
+            onClose={() => setOpenSheet(null)}
+          />
+        )}
+        {openSheet === 'presets' && (
+          <PresetsSheet
+            key="presets"
+            presets={presets}
+            units={units}
+            onSave={(next) => onPresetsChange?.(next)}
+            onClose={() => setOpenSheet(null)}
+          />
+        )}
+        {openSheet === 'drinks' && (
+          <DrinksSheet
+            key="drinks"
+            drinkTypes={drinkTypes}
+            drinkSettings={drinkSettings}
+            units={units}
+            onSave={(next) => onDrinkSettingsChange?.(next)}
+            onClose={() => setOpenSheet(null)}
+          />
         )}
       </AnimatePresence>
     </motion.div>
