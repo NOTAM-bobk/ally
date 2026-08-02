@@ -34,6 +34,7 @@ const GOAL_STORAGE_KEY = 'ally-goal'
 const UNITS_STORAGE_KEY = 'ally-units'
 const PRESETS_STORAGE_KEY = 'ally-presets'
 const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
+const DRINK_HISTORY_STORAGE_KEY = 'ally-drink-history'
 const DEFAULT_GOAL = 64
 const MAX_DAILY_OZ = 500 // sane ceiling so numbers can't grow forever
 const GOAL_BANNER_MS = 5000 // how long the "Goal reached!" pill stays up
@@ -214,6 +215,19 @@ function loadDrinkSettings() {
     // fall through to default
   }
   return defaults
+}
+
+// Per-day breakdown by drink bucket ('water' plus each DRINK_TYPES id), so
+// Insights can chart what's actually been drunk over time — not just the
+// daily oz total. Shape: { 'YYYY-MM-DD': { water: oz, coffee: oz, ... } }.
+function loadDrinkHistory() {
+  try {
+    const raw = localStorage.getItem(DRINK_HISTORY_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 /* ------------------------------ subcomponents ------------------------------ */
@@ -817,6 +831,11 @@ export default function App() {
 
   const [goal, setGoal] = useState(loadGoal)
   const [history, setHistory] = useState(loadHistory) // { 'YYYY-MM-DD': ozConsumed }
+  // Per-day breakdown by drink bucket ('water' + each DRINK_TYPES id).
+  // Persists across reloads (unlike drinkMix/otherDrinkEntries below, which
+  // are just today's in-memory cup visuals) — this is what Insights charts
+  // and the calendar/pie breakdown are built from.
+  const [drinkHistory, setDrinkHistory] = useState(loadDrinkHistory)
   const [dayOffset, setDayOffset] = useState(0) // 0 = today, 1 = yesterday, ...
   const [toasts, setToasts] = useState([])
   const [step, setStep] = useState(loadStep) // +/- button increment, user-adjustable
@@ -856,6 +875,15 @@ export default function App() {
       // storage unavailable (e.g. private browsing) — fail silently
     }
   }, [history])
+
+  // Persist the per-drink-type breakdown so Insights charts survive a reload.
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRINK_HISTORY_STORAGE_KEY, JSON.stringify(drinkHistory))
+    } catch {
+      // storage unavailable — fail silently
+    }
+  }, [drinkHistory])
 
   // Persist the chosen step size so it survives a reload.
   useEffect(() => {
@@ -946,6 +974,17 @@ export default function App() {
     }, 1100)
   }, [])
 
+  // Adds (or subtracts) oz from a specific bucket ('water' or a drink id) on
+  // a given day's breakdown, clamped so it can never go negative.
+  const bumpDrinkHistory = useCallback((dateKey, bucket, delta) => {
+    if (!delta) return
+    setDrinkHistory((dh) => {
+      const day = dh[dateKey] || {}
+      const nextVal = Math.max(0, (day[bucket] || 0) + delta)
+      return { ...dh, [dateKey]: { ...day, [bucket]: nextVal } }
+    })
+  }, [])
+
   // Water (or any drink) is always logged against today — if you're browsing
   // a past day, adding water jumps you back to today so you can see it land.
   const addWater = useCallback(
@@ -954,6 +993,10 @@ export default function App() {
       const nextVal = Math.max(0, Math.min(MAX_DAILY_OZ, prevToday + amount))
       const actualDelta = nextVal - prevToday
       setHistory((h) => ({ ...h, [todayKey]: nextVal }))
+      if (actualDelta !== 0) {
+        const bucket = color ? DRINK_BY_COLOR[color]?.id || 'water' : 'water'
+        bumpDrinkHistory(todayKey, bucket, actualDelta)
+      }
       if (amount > 0) {
         spawnToast(amount)
         if (color) {
@@ -970,11 +1013,12 @@ export default function App() {
       }
       setDayOffset(0)
     },
-    [history, todayKey, spawnToast]
+    [history, todayKey, spawnToast, bumpDrinkHistory]
   )
 
   // Undoes a single pour: subtracts it from today's total, its share of the
-  // color tint, and its own marker — without touching any other entries.
+  // color tint, its own marker, and its bucket in the day's breakdown —
+  // without touching any other entries.
   const removeOtherDrink = useCallback(
     (id) => {
       const entry = otherDrinkEntries.find((e) => e.id === id)
@@ -991,8 +1035,10 @@ export default function App() {
         else delete next[entry.color]
         return next
       })
+      const bucket = DRINK_BY_COLOR[entry.color]?.id || 'water'
+      bumpDrinkHistory(todayKey, bucket, -entry.amount)
     },
-    [otherDrinkEntries, todayKey]
+    [otherDrinkEntries, todayKey, bumpDrinkHistory]
   )
 
   const goPrevDay = useCallback(() => setDayOffset((d) => d + 1), [])
@@ -1225,7 +1271,16 @@ export default function App() {
       <AnimatePresence>
         {overlay === 'insights' && (
           <Suspense fallback={null} key="insights">
-            <Insights onClose={closeOverlay} />
+            <Insights
+              onClose={closeOverlay}
+              history={history}
+              drinkHistory={drinkHistory}
+              drinkTypes={DRINK_TYPES}
+              goal={goal}
+              units={units}
+              onUnitsChange={setUnits}
+              streak={streak}
+            />
           </Suspense>
         )}
         {overlay === 'account' && (
