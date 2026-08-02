@@ -25,6 +25,10 @@ const DEFAULT_STEP = 8 // oz — default amount the +/- buttons adjust by
 const PRESETS = [8, 16, 24]
 const HISTORY_STORAGE_KEY = 'ally-history'
 const STEP_STORAGE_KEY = 'ally-step'
+const ONBOARDED_STORAGE_KEY = 'ally-onboarded'
+const USER_STORAGE_KEY = 'ally-user'
+const GOAL_STORAGE_KEY = 'ally-goal'
+const DEFAULT_GOAL = 64
 const MAX_DAILY_OZ = 500 // sane ceiling so numbers can't grow forever
 const GOAL_BANNER_MS = 5000 // how long the "Goal reached!" pill stays up
 
@@ -118,6 +122,37 @@ function loadStep() {
     return Number.isFinite(n) && n > 0 ? n : DEFAULT_STEP
   } catch {
     return DEFAULT_STEP
+  }
+}
+
+// If Onboarding has already run and saved its flag, skip straight to the
+// dashboard on future loads instead of showing the intro slides again.
+function loadStage() {
+  try {
+    return localStorage.getItem(ONBOARDED_STORAGE_KEY) ? 'dashboard' : 'onboarding'
+  } catch {
+    return 'onboarding'
+  }
+}
+
+function loadUser() {
+  try {
+    const raw = localStorage.getItem(USER_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+// The personalized goal Onboarding calculated (gender/age/height/weight/activity),
+// falling back to the old flat default if it isn't there yet.
+function loadGoal() {
+  try {
+    const raw = localStorage.getItem(GOAL_STORAGE_KEY)
+    const n = raw ? Number(raw) : DEFAULT_GOAL
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_GOAL
+  } catch {
+    return DEFAULT_GOAL
   }
 }
 
@@ -593,11 +628,11 @@ const StepModal = memo(function StepModal({ step, onChange, onClose }) {
 /* ---------------------------------- App ---------------------------------- */
 
 export default function App() {
-  const [stage, setStage] = useState('onboarding') // 'onboarding' | 'dashboard'
-  const [user, setUser] = useState(null)
+  const [stage, setStage] = useState(loadStage) // 'onboarding' | 'dashboard'
+  const [user, setUser] = useState(loadUser)
   const [overlay, setOverlay] = useState(null) // null | 'insights' | 'account'
 
-  const [goal] = useState(64)
+  const [goal, setGoal] = useState(loadGoal)
   const [history, setHistory] = useState(loadHistory) // { 'YYYY-MM-DD': ozConsumed }
   const [dayOffset, setDayOffset] = useState(0) // 0 = today, 1 = yesterday, ...
   const [toasts, setToasts] = useState([])
@@ -694,6 +729,7 @@ export default function App() {
 
   const handleOnboardingComplete = useCallback((userData) => {
     setUser(userData)
+    if (userData?.goal) setGoal(userData.goal)
     setStage('dashboard')
   }, [])
 
