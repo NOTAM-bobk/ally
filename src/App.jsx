@@ -17,6 +17,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import Onboarding from './Onboarding.jsx'
+import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount } from './units.js'
 
 // Account and Insights are only needed once the user opens them, so they're
 // code-split out of the main bundle (perf: smaller initial JS payload).
@@ -24,12 +25,15 @@ const Account = lazy(() => import('./Account.jsx'))
 const Insights = lazy(() => import('./Insights.jsx'))
 
 const DEFAULT_STEP = 8 // oz — default amount the +/- buttons adjust by
-const PRESETS = [8, 16, 24]
+const DEFAULT_PRESETS = [8, 16, 24] // oz — fallback quick-add amounts, customizable in Account
 const HISTORY_STORAGE_KEY = 'ally-history'
 const STEP_STORAGE_KEY = 'ally-step'
 const ONBOARDED_STORAGE_KEY = 'ally-onboarded'
 const USER_STORAGE_KEY = 'ally-user'
 const GOAL_STORAGE_KEY = 'ally-goal'
+const UNITS_STORAGE_KEY = 'ally-units'
+const PRESETS_STORAGE_KEY = 'ally-presets'
+const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
 const DEFAULT_GOAL = 64
 const MAX_DAILY_OZ = 500 // sane ceiling so numbers can't grow forever
 const GOAL_BANNER_MS = 5000 // how long the "Goal reached!" pill stays up
@@ -42,6 +46,13 @@ const DRINK_TYPES = [
   { id: 'milk', label: 'Milk', icon: Milk, color: '#EADFC8' },
 ]
 const DRINK_BY_COLOR = Object.fromEntries(DRINK_TYPES.map((d) => [d.color, d]))
+
+// Per-drink customization: each drink can be shown/hidden and given its own
+// tap amount (in oz), independent of the others and independent of the main
+// +/- step size.
+function defaultDrinkSettings() {
+  return Object.fromEntries(DRINK_TYPES.map((d) => [d.id, { enabled: true, step: DEFAULT_STEP }]))
+}
 
 /* ---------------------------- color helpers ---------------------------- */
 function hexToRgb(hex) {
@@ -158,10 +169,58 @@ function loadGoal() {
   }
 }
 
+// The display unit is read here (top of the app) and handed down to every
+// screen that shows a number, so switching it in Account changes it
+// everywhere at once instead of just on the Account screen.
+function loadUnits() {
+  try {
+    const raw = localStorage.getItem(UNITS_STORAGE_KEY)
+    return UNIT_ORDER.includes(raw) ? raw : 'oz'
+  } catch {
+    return 'oz'
+  }
+}
+
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((n) => Number.isFinite(n) && n > 0)) {
+      return parsed
+    }
+  } catch {
+    // fall through to default
+  }
+  return DEFAULT_PRESETS
+}
+
+function loadDrinkSettings() {
+  const defaults = defaultDrinkSettings()
+  try {
+    const raw = localStorage.getItem(DRINK_SETTINGS_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (parsed && typeof parsed === 'object') {
+      const merged = {}
+      for (const id of Object.keys(defaults)) {
+        const saved = parsed[id]
+        merged[id] = {
+          enabled: typeof saved?.enabled === 'boolean' ? saved.enabled : defaults[id].enabled,
+          step: Number.isFinite(saved?.step) && saved.step > 0 ? saved.step : defaults[id].step,
+        }
+      }
+      return merged
+    }
+  } catch {
+    // fall through to default
+  }
+  return defaults
+}
+
 /* ------------------------------ subcomponents ------------------------------ */
 
-const Droplet = memo(function Droplet({ amount }) {
+const Droplet = memo(function Droplet({ amount, units }) {
   const isAdd = amount > 0
+  const label = formatAmount(Math.abs(amount), units)
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.5, y: 8 }}
@@ -172,12 +231,12 @@ const Droplet = memo(function Droplet({ amount }) {
         isAdd ? 'bg-aqua-deep text-white' : 'bg-white text-ink'
       }`}
     >
-      {isAdd ? '+' : ''}{amount} oz
+      {isAdd ? '+' : '-'}{label}
     </motion.div>
   )
 })
 
-const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onRemoveDrink }) {
+const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onRemoveDrink, units }) {
   const clipId = useId()
   const gradId = useId()
   const ratio = goal > 0 ? current / goal : 0
@@ -364,7 +423,7 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onR
             >
               <div className="bg-white rounded-2xl shadow-card px-3 py-2 flex flex-col items-center gap-1.5 whitespace-nowrap">
                 <span className="font-body text-xs font-bold text-ink">
-                  {activeMarker.drink?.label || 'Drink'} · {activeMarker.amount} oz
+                  {activeMarker.drink?.label || 'Drink'} · {formatAmount(activeMarker.amount, units)}
                 </span>
                 <button
                   onClick={() => {
@@ -385,9 +444,11 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onR
   )
 })
 
-const PresetButton = memo(function PresetButton({ amount, maxAmount, onTap }) {
+const PresetButton = memo(function PresetButton({ amount, maxAmount, units, onTap }) {
   // Icon grows a step for each bigger preset, so size is visible at a glance.
+  // Sizing compares raw oz amounts (unaffected by display unit).
   const iconClass = amount <= maxAmount / 3 ? 'w-3.5 h-3.5' : amount <= (2 * maxAmount) / 3 ? 'w-4 h-4' : 'w-4.5 h-4.5'
+  const displayValue = ozToUnit(amount, units)
   return (
     <motion.button
       onClick={() => onTap(amount)}
@@ -397,9 +458,9 @@ const PresetButton = memo(function PresetButton({ amount, maxAmount, onTap }) {
       className="flex-1 bg-mist rounded-2xl py-2.5 shadow-card border-2 border-transparent active:border-aqua flex flex-col items-center justify-center"
     >
       <GlassWater className={`${iconClass} text-aqua-deep mb-0.5`} />
-      <span className="font-hand text-xl text-ink leading-none">+{amount}</span>
+      <span className="font-hand text-xl text-ink leading-none">+{displayValue}</span>
       <span className="font-body text-[9px] font-bold text-inkSoft uppercase tracking-wide mt-0.5">
-        oz
+        {UNIT_DEFS[units]?.short || 'oz'}
       </span>
     </motion.button>
   )
@@ -665,11 +726,12 @@ const ORBIT_SPOTS = [
   { bottom: '16%', right: '-15%' },
 ]
 
-const FloatingDrinks = memo(function FloatingDrinks({ open, step, onAdd }) {
+const FloatingDrinks = memo(function FloatingDrinks({ open, drinkSettings, onAdd }) {
+  const activeDrinks = DRINK_TYPES.filter((d) => drinkSettings[d.id]?.enabled !== false)
   return (
     <AnimatePresence>
       {open &&
-        DRINK_TYPES.map((drink, i) => {
+        activeDrinks.map((drink, i) => {
           const Icon = drink.icon
           const spot = ORBIT_SPOTS[i % ORBIT_SPOTS.length]
           const floatX = 6 + (i % 2) * 5
@@ -693,7 +755,7 @@ const FloatingDrinks = memo(function FloatingDrinks({ open, step, onAdd }) {
                 y: { duration: duration * 1.15, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 },
               }}
               whileTap={{ scale: 0.85 }}
-              onClick={() => onAdd(step, drink.color)}
+              onClick={() => onAdd(drinkSettings[drink.id]?.step || DEFAULT_STEP, drink.color)}
               className="hand-wobble absolute w-14 h-14 rounded-full shadow-card flex items-center justify-center text-white z-20"
               style={{ backgroundColor: drink.color, ...spot }}
               aria-label={`Add ${drink.label}`}
@@ -707,7 +769,8 @@ const FloatingDrinks = memo(function FloatingDrinks({ open, step, onAdd }) {
 })
 
 // Popup for adjusting the +/- step size, opened by tapping the "N oz step" label.
-const StepModal = memo(function StepModal({ step, onChange, onClose }) {
+const StepModal = memo(function StepModal({ step, units, onChange, onClose }) {
+  const unitShort = UNIT_DEFS[units]?.short || 'oz'
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -732,7 +795,9 @@ const StepModal = memo(function StepModal({ step, onChange, onClose }) {
           <X className="w-4 h-4 text-inkSoft" />
         </button>
         <p className="font-hand text-2xl text-ink text-center">Step size</p>
-        <p className="font-body text-4xl font-black text-aqua-deep text-center mt-2">{step} oz</p>
+        <p className="font-body text-4xl font-black text-aqua-deep text-center mt-2">
+          {ozToUnit(step, units)} {unitShort}
+        </p>
         <input
           type="range"
           min={1}
@@ -743,8 +808,8 @@ const StepModal = memo(function StepModal({ step, onChange, onClose }) {
           className="w-full mt-5 accent-coral"
         />
         <div className="flex justify-between font-body text-[11px] text-inkSoft font-bold mt-1">
-          <span>1 oz</span>
-          <span>32 oz</span>
+          <span>{ozToUnit(1, units)} {unitShort}</span>
+          <span>{ozToUnit(32, units)} {unitShort}</span>
         </div>
         <motion.button
           whileTap={{ scale: 0.95 }}
@@ -771,6 +836,14 @@ export default function App() {
   const [toasts, setToasts] = useState([])
   const [step, setStep] = useState(loadStep) // +/- button increment, user-adjustable
   const [stepModalOpen, setStepModalOpen] = useState(false)
+  // Display unit — read once here at the top of the app and passed down to
+  // every screen that renders a number, so changing it in Account updates
+  // the cup, presets, step modal, and everywhere else at once.
+  const [units, setUnits] = useState(loadUnits)
+  // Quick-add preset amounts (oz), customizable from Account.
+  const [presets, setPresets] = useState(loadPresets)
+  // Per-drink enabled/step customization for the "Other drinks" floaters.
+  const [drinkSettings, setDrinkSettings] = useState(loadDrinkSettings)
   // Running total of non-water drinks logged today, by color, so the cup can
   // tint toward whatever's actually been added. In-memory only (resets on
   // reload), which is fine since it's a light visual touch, not core data.
@@ -798,6 +871,33 @@ export default function App() {
       // storage unavailable — fail silently
     }
   }, [step])
+
+  // Persist the display unit so it survives a reload.
+  useEffect(() => {
+    try {
+      localStorage.setItem(UNITS_STORAGE_KEY, units)
+    } catch {
+      // storage unavailable — fail silently
+    }
+  }, [units])
+
+  // Persist quick-add presets so custom amounts survive a reload.
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets))
+    } catch {
+      // storage unavailable — fail silently
+    }
+  }, [presets])
+
+  // Persist per-drink enabled/step customization so it survives a reload.
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRINK_SETTINGS_STORAGE_KEY, JSON.stringify(drinkSettings))
+    } catch {
+      // storage unavailable — fail silently
+    }
+  }, [drinkSettings])
 
   const todayKey = useMemo(() => toKey(new Date()), [])
   const selectedDate = useMemo(() => addDays(new Date(), -dayOffset), [dayOffset])
@@ -936,20 +1036,23 @@ export default function App() {
             tint={isToday ? tint : null}
             drinkEntries={isToday ? otherDrinkEntries : []}
             onRemoveDrink={removeOtherDrink}
+            units={units}
           />
 
-          <FloatingDrinks open={otherDrinksOpen} step={step} onAdd={addOtherDrink} />
+          <FloatingDrinks open={otherDrinksOpen} drinkSettings={drinkSettings} onAdd={addOtherDrink} />
 
           <AnimatePresence>
             {toasts.map((t) => (
-              <Droplet key={t.id} amount={t.amount} />
+              <Droplet key={t.id} amount={t.amount} units={units} />
             ))}
           </AnimatePresence>
         </div>
 
         <div className="flex items-baseline gap-1 mt-4">
-          <span className="font-body font-black text-4xl text-ink">{Math.round(current)}</span>
-          <span className="font-body text-inkSoft font-bold">/ {goal} oz</span>
+          <span className="font-body font-black text-4xl text-ink">{ozToUnit(current, units)}</span>
+          <span className="font-body text-inkSoft font-bold">
+            / {ozToUnit(goal, units)} {UNIT_DEFS[units]?.short || 'oz'}
+          </span>
         </div>
 
         {!isToday && (
@@ -973,7 +1076,7 @@ export default function App() {
             whileTap={{ scale: 0.92 }}
             className="font-body text-xs font-bold text-inkSoft w-16 text-center underline decoration-dotted decoration-inkSoft/50 underline-offset-2"
           >
-            {step} oz step
+            {ozToUnit(step, units)} {UNIT_DEFS[units]?.short || 'oz'} step
           </motion.button>
 
           <motion.button
@@ -992,17 +1095,20 @@ export default function App() {
           Quick add
         </p>
         <div className="flex gap-2.5">
-          {PRESETS.map((amount) => (
+          {presets.map((amount, i) => (
             <PresetButton
-              key={amount}
+              key={i}
               amount={amount}
-              maxAmount={PRESETS[PRESETS.length - 1]}
+              maxAmount={Math.max(...presets)}
+              units={units}
               onTap={addWater}
             />
           ))}
         </div>
 
-        <OtherDrinksToggle open={otherDrinksOpen} onToggle={() => setOtherDrinksOpen((o) => !o)} />
+        {DRINK_TYPES.some((d) => drinkSettings[d.id]?.enabled !== false) && (
+          <OtherDrinksToggle open={otherDrinksOpen} onToggle={() => setOtherDrinksOpen((o) => !o)} />
+        )}
       </div>
 
       {/* overlays — lazy loaded, only pulled in when opened */}
@@ -1014,7 +1120,19 @@ export default function App() {
         )}
         {overlay === 'account' && (
           <Suspense fallback={null} key="account">
-            <Account user={user} onClose={closeOverlay} />
+            <Account
+              user={user}
+              goal={goal}
+              onGoalChange={setGoal}
+              units={units}
+              onUnitsChange={setUnits}
+              presets={presets}
+              onPresetsChange={setPresets}
+              drinkTypes={DRINK_TYPES}
+              drinkSettings={drinkSettings}
+              onDrinkSettingsChange={setDrinkSettings}
+              onClose={closeOverlay}
+            />
           </Suspense>
         )}
       </AnimatePresence>
@@ -1022,7 +1140,13 @@ export default function App() {
       {/* step-size adjuster popup */}
       <AnimatePresence>
         {stepModalOpen && (
-          <StepModal key="step-modal" step={step} onChange={setStep} onClose={() => setStepModalOpen(false)} />
+          <StepModal
+            key="step-modal"
+            step={step}
+            units={units}
+            onChange={setStep}
+            onClose={() => setStepModalOpen(false)}
+          />
         )}
       </AnimatePresence>
     </div>
