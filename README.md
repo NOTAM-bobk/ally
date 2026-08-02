@@ -1,5 +1,7 @@
 # Ally — Hydration Buddy 💧
 
+# go to datatool.edgeone.app for auto redrect for quick access!!! 
+
 A playful, handwritten-style hydration tracker built with React, Vite, Tailwind CSS, and Framer Motion.
 
 ## File structure
