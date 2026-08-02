@@ -10,6 +10,7 @@ import {
   Check,
   Sliders,
   GlassWater,
+  Palette,
   FileText,
   ShieldCheck,
   Lightbulb,
@@ -19,6 +20,7 @@ import {
 import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount, unitShort } from './units.js'
 
 const REMINDERS_STORAGE_KEY = 'ally-reminders'
+const THEME_STORAGE_KEY = 'ally-theme'
 // Storage keys owned by App.jsx (units/presets/drink settings) — listed here
 // too so sign-out can clear everything this screen touches.
 const UNITS_STORAGE_KEY = 'ally-units'
@@ -26,6 +28,13 @@ const PRESETS_STORAGE_KEY = 'ally-presets'
 const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
 
 const INTERVAL_OPTIONS = [1, 2, 3, 4, 6]
+
+// Only "Light" actually does anything today — this is just the scaffold for
+// an Appearance section we'll build out with more options later.
+const THEME_OPTIONS = [
+  { id: 'light', label: 'Light', available: true },
+  { id: 'dark', label: 'Dark', available: false },
+]
 
 // Quick links open in a new tab so nobody loses their place in the app.
 // Swap these placeholder URLs for the real destinations when ready.
@@ -51,6 +60,15 @@ function loadReminders() {
     // fall through to default
   }
   return { enabled: false, intervalHours: 2 }
+}
+
+function loadTheme() {
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY)
+    return THEME_OPTIONS.some((t) => t.id === raw) ? raw : 'light'
+  } catch {
+    return 'light'
+  }
 }
 
 // Shared bottom-sheet shell for every settings editor.
@@ -223,8 +241,42 @@ function UnitsSheet({ units, onSave, onClose }) {
   )
 }
 
-// Lets the person customize each of the three quick-add buttons on the
-// dashboard. Each preset is edited independently, in whatever unit is
+// First setting under Appearance. Only Light works today — Dark (and
+// whatever else lands here later) shows up already, greyed out and
+// labeled, so the section has somewhere to grow into.
+function ThemeSheet({ theme, onSave, onClose }) {
+  return (
+    <SettingsSheet title="Theme" onClose={onClose}>
+      <div className="flex flex-col gap-2">
+        {THEME_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            disabled={!opt.available}
+            onClick={() => {
+              if (!opt.available) return
+              onSave(opt.id)
+              onClose()
+            }}
+            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border-2 font-body font-bold text-sm ${
+              !opt.available
+                ? 'bg-mist/60 text-inkSoft/50 border-transparent cursor-not-allowed'
+                : theme === opt.id
+                ? 'bg-aqua-deep text-white border-aqua-deep'
+                : 'bg-mist text-inkSoft border-transparent'
+            }`}
+          >
+            <span>{opt.label}</span>
+            {!opt.available ? (
+              <span className="text-[10px] font-bold uppercase tracking-wide">Coming soon</span>
+            ) : (
+              theme === opt.id && <Check className="w-4 h-4" />
+            )}
+          </button>
+        ))}
+      </div>
+    </SettingsSheet>
+  )
+}
 // currently selected, but stored back in ounces like everything else.
 function PresetsSheet({ presets, units, onSave, onClose }) {
   const [values, setValues] = useState(presets)
@@ -389,14 +441,24 @@ export default function Account({
   onClose,
   onSignOut,
 }) {
-  const [openSheet, setOpenSheet] = useState(null) // null | 'goal' | 'reminders' | 'units' | 'presets' | 'drinks'
+  const [openSheet, setOpenSheet] = useState(null) // null | 'goal' | 'reminders' | 'units' | 'presets' | 'drinks' | 'theme'
   const [reminders, setReminders] = useState(loadReminders)
+  const [theme, setTheme] = useState(loadTheme)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
 
   const saveReminders = (next) => {
     setReminders(next)
     try {
       localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(next))
+    } catch {
+      // storage unavailable — setting still applies for this session
+    }
+  }
+
+  const saveTheme = (next) => {
+    setTheme(next)
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next)
     } catch {
       // storage unavailable — setting still applies for this session
     }
@@ -414,6 +476,7 @@ export default function Account({
       localStorage.removeItem('ally-history')
       localStorage.removeItem('ally-step')
       localStorage.removeItem(REMINDERS_STORAGE_KEY)
+      localStorage.removeItem(THEME_STORAGE_KEY)
       localStorage.removeItem(UNITS_STORAGE_KEY)
       localStorage.removeItem(PRESETS_STORAGE_KEY)
       localStorage.removeItem(DRINK_SETTINGS_STORAGE_KEY)
@@ -452,6 +515,17 @@ export default function Account({
     },
   ]
 
+  // Its own small section for now — more appearance settings will join
+  // "Theme" here later.
+  const appearanceRows = [
+    {
+      key: 'theme',
+      icon: Palette,
+      label: 'Theme',
+      value: THEME_OPTIONS.find((t) => t.id === theme)?.label || 'Light',
+    },
+  ]
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -464,7 +538,7 @@ export default function Account({
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: -20, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-        className="flex-1 flex flex-col overflow-y-auto px-6 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]"
+        className="flex-1 flex flex-col overflow-y-auto min-h-0 px-6 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]"
       >
         <div className="flex items-center justify-between mb-8">
           <h1 className="font-hand text-4xl text-ink">Your account</h1>
@@ -490,6 +564,28 @@ export default function Account({
         </p>
         <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden mb-6">
           {rows.map(({ key, icon: Icon, label, value }) => (
+            <button
+              key={key}
+              onClick={() => setOpenSheet(key)}
+              className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
+                <Icon className="w-4.5 h-4.5 text-aqua-deep" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-body font-bold text-ink text-sm">{label}</p>
+                <p className="font-body text-xs text-inkSoft truncate">{value}</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-ink/30" />
+            </button>
+          ))}
+        </div>
+
+        <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-2 px-1">
+          Appearance
+        </p>
+        <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden mb-6">
+          {appearanceRows.map(({ key, icon: Icon, label, value }) => (
             <button
               key={key}
               onClick={() => setOpenSheet(key)}
@@ -585,6 +681,9 @@ export default function Account({
             onSave={(next) => onDrinkSettingsChange?.(next)}
             onClose={() => setOpenSheet(null)}
           />
+        )}
+        {openSheet === 'theme' && (
+          <ThemeSheet key="theme" theme={theme} onSave={saveTheme} onClose={() => setOpenSheet(null)} />
         )}
       </AnimatePresence>
     </motion.div>
