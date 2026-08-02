@@ -715,81 +715,43 @@ const Bubbles = memo(function Bubbles() {
   )
 })
 
-// Toggle lives in the bottom sheet, but no longer holds its own drink row —
-// the drink options now float around the cup itself (see FloatingDrinks
-// below). This component is now fully controlled from App.
-const OtherDrinksToggle = memo(function OtherDrinksToggle({ open, onToggle }) {
+// A single drink option in the side-scrolling "Other drinks" strip — icon
+// bubble, name, and its configured tap amount. Sits in a horizontally
+// scrollable row inside the bottom sheet's swipeable second page.
+const DrinkChip = memo(function DrinkChip({ drink, step, units, onTap }) {
+  const Icon = drink.icon
   return (
-    <div className="mt-3 flex justify-center">
-      <motion.button
-        onClick={onToggle}
-        whileTap={{ scale: 0.94 }}
-        className="flex items-center gap-1.5 bg-mist px-3.5 py-1.5 rounded-full shadow-card"
-        aria-label={open ? 'Close other drinks' : 'Add another drink'}
+    <motion.button
+      onClick={() => onTap(step, drink.color)}
+      whileTap={{ scale: 0.92, rotate: -2 }}
+      whileHover={{ scale: 1.04 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 14 }}
+      className="hand-wobble snap-start shrink-0 w-20 flex flex-col items-center gap-1.5 bg-mist rounded-2xl px-2 py-2.5 shadow-card border-2 border-transparent active:border-aqua"
+      aria-label={`Add ${drink.label}`}
+    >
+      <span
+        className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0"
+        style={{ backgroundColor: drink.color }}
       >
-        <motion.span animate={{ rotate: open ? 45 : 0 }} className="flex">
-          <Plus className="w-3.5 h-3.5 text-aqua-deep" strokeWidth={3} />
-        </motion.span>
-        <span className="font-body text-[11px] font-bold text-inkSoft uppercase tracking-wide">
-          {open ? 'Close' : 'Other drinks'}
-        </span>
-      </motion.button>
-    </div>
+        <Icon className="w-4.5 h-4.5" />
+      </span>
+      <span className="font-hand text-base text-ink leading-none truncate max-w-full">{drink.label}</span>
+      <span className="font-body text-[9px] font-bold text-inkSoft uppercase tracking-wide">
+        +{ozToUnit(step, units)} {UNIT_DEFS[units]?.short || 'oz'}
+      </span>
+    </motion.button>
   )
 })
 
-// Drink-type circles that appear around the cup and gently float/orbit in
-// place while open. Each circle shows just the drink's icon, centered.
-// Positioned relative to the cup's own wrapper div, so "around the cup"
-// tracks the cup regardless of screen size.
-const ORBIT_SPOTS = [
-  { top: '0%', left: '-10%' },
-  { top: '0%', right: '-10%' },
-  { bottom: '16%', left: '-15%' },
-  { bottom: '16%', right: '-15%' },
-]
-
-const FloatingDrinks = memo(function FloatingDrinks({ open, drinkSettings, onAdd }) {
-  const activeDrinks = DRINK_TYPES.filter((d) => drinkSettings[d.id]?.enabled !== false)
-  return (
-    <AnimatePresence>
-      {open &&
-        activeDrinks.map((drink, i) => {
-          const Icon = drink.icon
-          const spot = ORBIT_SPOTS[i % ORBIT_SPOTS.length]
-          const floatX = 6 + (i % 2) * 5
-          const floatY = 7 + (i % 3) * 4
-          const duration = 5.5 + i * 0.9
-          return (
-            <motion.button
-              key={drink.id}
-              initial={{ opacity: 0, scale: 0.4 }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                x: [0, floatX, -floatX * 0.6, 0],
-                y: [0, -floatY, floatY * 0.7, 0],
-              }}
-              exit={{ opacity: 0, scale: 0.4 }}
-              transition={{
-                opacity: { duration: 0.25 },
-                scale: { type: 'spring', stiffness: 300, damping: 20 },
-                x: { duration, repeat: Infinity, ease: 'easeInOut', delay: i * 0.3 },
-                y: { duration: duration * 1.15, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 },
-              }}
-              whileTap={{ scale: 0.85 }}
-              onClick={() => onAdd(drinkSettings[drink.id]?.step || DEFAULT_STEP, drink.color)}
-              className="hand-wobble absolute w-14 h-14 rounded-full shadow-card flex items-center justify-center text-white z-20"
-              style={{ backgroundColor: drink.color, ...spot }}
-              aria-label={`Add ${drink.label}`}
-            >
-              <Icon className="w-6 h-6" />
-            </motion.button>
-          )
-        })}
-    </AnimatePresence>
-  )
-})
+// The bottom sheet has two pages — Quick add (water presets) and Other
+// drinks (side-scrolling drink picker) — swiped between via the small
+// grabber handle (and, from the presets page, by dragging the row itself).
+// `dir` drives which direction the incoming/outgoing page slides from.
+const bottomPagerVariants = {
+  enter: (dir) => ({ opacity: 0, x: dir > 0 ? 36 : -36 }),
+  center: { opacity: 1, x: 0 },
+  exit: (dir) => ({ opacity: 0, x: dir > 0 ? -36 : 36 }),
+}
 
 // Popup for adjusting the +/- step size, opened by tapping the "N oz step" label.
 const StepModal = memo(function StepModal({ step, units, onChange, onClose }) {
@@ -875,7 +837,12 @@ export default function App() {
   // its own line marker in the cup and be removed on its own. In-memory only
   // (resets on reload), matching drinkMix above.
   const [otherDrinkEntries, setOtherDrinkEntries] = useState([])
-  const [otherDrinksOpen, setOtherDrinksOpen] = useState(false)
+  // Which page of the bottom sheet is showing — 0 = Quick add (water
+  // presets), 1 = Other drinks (side-scrolling drink picker). pagerDir
+  // tracks which way the last switch happened so the page can slide in
+  // from the right direction.
+  const [bottomPage, setBottomPage] = useState(0)
+  const [pagerDir, setPagerDir] = useState(1)
   // Bumped every time addWater actually changes today's total, so WaterCup
   // can play a one-off "slosh" animation without re-rendering on every
   // unrelated state change (e.g. switching days).
@@ -926,6 +893,14 @@ export default function App() {
     }
   }, [drinkSettings])
 
+  // If every other-drink type gets disabled from Account while the drinks
+  // page is showing, fall back to Quick add rather than leaving it empty.
+  useEffect(() => {
+    if (bottomPage === 1 && !DRINK_TYPES.some((d) => drinkSettings[d.id]?.enabled !== false)) {
+      setBottomPage(0)
+    }
+  }, [drinkSettings, bottomPage])
+
   const todayKey = useMemo(() => toKey(new Date()), [])
   const selectedDate = useMemo(() => addDays(new Date(), -dayOffset), [dayOffset])
   const selectedKey = useMemo(() => toKey(selectedDate), [selectedDate])
@@ -933,6 +908,14 @@ export default function App() {
 
   const current = history[selectedKey] || 0
   const streak = useMemo(() => computeStreak(history, goal), [history, goal])
+
+  // Which non-water drinks show up in the "Other drinks" page of the bottom
+  // sheet — respects the enabled/disabled toggles set in Account.
+  const activeDrinkTypes = useMemo(
+    () => DRINK_TYPES.filter((d) => drinkSettings[d.id]?.enabled !== false),
+    [drinkSettings]
+  )
+  const hasOtherDrinks = activeDrinkTypes.length > 0
 
   // Blend today's logged drink colors into a single tint, weighted by how
   // much of today's total they make up (capped so it stays subtle).
@@ -1019,9 +1002,34 @@ export default function App() {
   const addOtherDrink = useCallback(
     (amount, color) => {
       addWater(amount, color)
-      setOtherDrinksOpen(false)
+      setPagerDir(-1)
+      setBottomPage(0)
     },
     [addWater]
+  )
+
+  // Swiping the grabber handle (or the presets row itself) switches between
+  // the Quick add and Other drinks pages of the bottom sheet.
+  const handleBottomPagerDragEnd = useCallback(
+    (_e, info) => {
+      const threshold = 40
+      if (info.offset.x <= -threshold && bottomPage === 0) {
+        setPagerDir(1)
+        setBottomPage(1)
+      } else if (info.offset.x >= threshold && bottomPage === 1) {
+        setPagerDir(-1)
+        setBottomPage(0)
+      }
+    },
+    [bottomPage]
+  )
+
+  const goToBottomPage = useCallback(
+    (page) => {
+      setPagerDir(page > bottomPage ? 1 : -1)
+      setBottomPage(page)
+    },
+    [bottomPage]
   )
 
   const openInsights = useCallback(() => setOverlay('insights'), [])
@@ -1072,8 +1080,6 @@ export default function App() {
             splashSignal={splashSignal}
           />
 
-          <FloatingDrinks open={otherDrinksOpen} drinkSettings={drinkSettings} onAdd={addOtherDrink} />
-
           <AnimatePresence>
             {toasts.map((t) => (
               <Droplet key={t.id} amount={t.amount} units={units} />
@@ -1122,25 +1128,96 @@ export default function App() {
         </div>
       </div>
 
-      {/* bottom sheet — quick add + other drinks, docked like a real app's action tray */}
-      <div className="relative z-10 bg-white rounded-t-[32px] shadow-[0_-8px_24px_rgba(28,50,56,0.10)] px-6 pt-5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
-          Quick add
-        </p>
-        <div className="flex gap-2.5">
-          {presets.map((amount, i) => (
-            <PresetButton
-              key={i}
-              amount={amount}
-              maxAmount={Math.max(...presets)}
-              units={units}
-              onTap={addWater}
-            />
-          ))}
+      {/* bottom sheet — swipe between Quick add (water presets) and Other
+          drinks (side-scrolling drink picker), docked like a real app's
+          action tray */}
+      <div className="relative z-10 bg-white rounded-t-[32px] shadow-[0_-8px_24px_rgba(28,50,56,0.10)] px-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-hidden">
+        {hasOtherDrinks && (
+          <motion.div
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.5}
+            onDragEnd={handleBottomPagerDragEnd}
+            whileTap={{ scale: 0.9 }}
+            className="w-10 h-1.5 bg-mistDeep rounded-full mx-auto mb-2.5 cursor-grab active:cursor-grabbing touch-pan-y"
+            aria-label={bottomPage === 0 ? 'Swipe for other drinks' : 'Swipe for quick add'}
+          />
+        )}
+
+        <div
+          {...(hasOtherDrinks && bottomPage === 0
+            ? { drag: 'x', dragConstraints: { left: 0, right: 0 }, dragElastic: 0.4, onDragEnd: handleBottomPagerDragEnd }
+            : {})}
+          className="touch-pan-y"
+        >
+          <AnimatePresence mode="wait" custom={pagerDir} initial={false}>
+            {bottomPage === 0 ? (
+              <motion.div
+                key="presets"
+                custom={pagerDir}
+                variants={bottomPagerVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+              >
+                <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
+                  Quick add
+                </p>
+                <div className="flex gap-2.5">
+                  {presets.map((amount, i) => (
+                    <PresetButton
+                      key={i}
+                      amount={amount}
+                      maxAmount={Math.max(...presets)}
+                      units={units}
+                      onTap={addWater}
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="drinks"
+                custom={pagerDir}
+                variants={bottomPagerVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+              >
+                <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
+                  Other drinks
+                </p>
+                <div className="flex gap-2.5 overflow-x-auto snap-x snap-proximity pb-1 -mx-6 px-6">
+                  {activeDrinkTypes.map((drink) => (
+                    <DrinkChip
+                      key={drink.id}
+                      drink={drink}
+                      step={drinkSettings[drink.id]?.step || DEFAULT_STEP}
+                      units={units}
+                      onTap={addOtherDrink}
+                    />
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {DRINK_TYPES.some((d) => drinkSettings[d.id]?.enabled !== false) && (
-          <OtherDrinksToggle open={otherDrinksOpen} onToggle={() => setOtherDrinksOpen((o) => !o)} />
+        {hasOtherDrinks && (
+          <div className="flex justify-center gap-1.5 mt-3">
+            {[0, 1].map((i) => (
+              <button
+                key={i}
+                onClick={() => goToBottomPage(i)}
+                className={`h-1.5 rounded-full transition-all ${
+                  bottomPage === i ? 'w-4 bg-aqua-deep' : 'w-1.5 bg-mistDeep'
+                }`}
+                aria-label={i === 0 ? 'Quick add' : 'Other drinks'}
+              />
+            ))}
+          </div>
         )}
       </div>
 
