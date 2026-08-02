@@ -25,10 +25,6 @@ const DEFAULT_STEP = 8 // oz — default amount the +/- buttons adjust by
 const PRESETS = [8, 16, 24]
 const HISTORY_STORAGE_KEY = 'ally-history'
 const STEP_STORAGE_KEY = 'ally-step'
-const ONBOARDED_STORAGE_KEY = 'ally-onboarded'
-const USER_STORAGE_KEY = 'ally-user'
-const GOAL_STORAGE_KEY = 'ally-goal'
-const DEFAULT_GOAL = 64
 const MAX_DAILY_OZ = 500 // sane ceiling so numbers can't grow forever
 const GOAL_BANNER_MS = 5000 // how long the "Goal reached!" pill stays up
 
@@ -125,50 +121,21 @@ function loadStep() {
   }
 }
 
-// If Onboarding has already run and saved its flag, skip straight to the
-// dashboard on future loads instead of showing the intro slides again.
-function loadStage() {
-  try {
-    return localStorage.getItem(ONBOARDED_STORAGE_KEY) ? 'dashboard' : 'onboarding'
-  } catch {
-    return 'onboarding'
-  }
-}
-
-function loadUser() {
-  try {
-    const raw = localStorage.getItem(USER_STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-    return null
-  }
-}
-
-// The personalized goal Onboarding calculated (gender/age/height/weight/activity),
-// falling back to the old flat default if it isn't there yet.
-function loadGoal() {
-  try {
-    const raw = localStorage.getItem(GOAL_STORAGE_KEY)
-    const n = raw ? Number(raw) : DEFAULT_GOAL
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_GOAL
-  } catch {
-    return DEFAULT_GOAL
-  }
-}
-
 /* ------------------------------ subcomponents ------------------------------ */
 
-const Droplet = memo(function Droplet({ left, top, amount }) {
+const Droplet = memo(function Droplet({ amount }) {
+  const isAdd = amount > 0
   return (
     <motion.div
-      initial={{ opacity: 0, y: 0, scale: 0.6 }}
-      animate={{ opacity: [0, 1, 1, 0], y: -46, scale: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 1.1, ease: 'easeOut' }}
-      className="absolute font-hand text-xl font-bold text-aqua-deep pointer-events-none select-none"
-      style={{ left: `${left}%`, top: `${top}%` }}
+      initial={{ opacity: 0, scale: 0.5, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.7, y: -16 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+      className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-hand text-2xl font-bold px-5 py-2 rounded-full shadow-soft pointer-events-none select-none whitespace-nowrap z-30 ${
+        isAdd ? 'bg-aqua-deep text-white' : 'bg-white text-ink'
+      }`}
     >
-      +{amount} oz
+      {isAdd ? '+' : ''}{amount} oz
     </motion.div>
   )
 })
@@ -329,6 +296,12 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkMix }) {
           strokeLinecap="round"
         />
       </svg>
+
+      <div className="absolute bottom-[13%] left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+        <span className="font-body font-black text-lg text-white drop-shadow-[0_1px_3px_rgba(28,50,56,0.45)]">
+          {Math.round(ratio * 100)}%
+        </span>
+      </div>
     </div>
   )
 })
@@ -391,7 +364,7 @@ const InsightsButton = memo(function InsightsButton({ onClick, streak, current, 
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="#FF7B6B"
+          stroke="#1C93D1"
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -513,63 +486,78 @@ const Bubbles = memo(function Bubbles() {
   )
 })
 
-// Inline toggle that expands into a row of other-drink chips (icon + label),
-// living in the bottom sheet's normal flow instead of floating — nothing
-// fixed to collide with the +/- buttons on small screens anymore.
-const OtherDrinksToggle = memo(function OtherDrinksToggle({ step, onAdd }) {
-  const [open, setOpen] = useState(false)
+// Toggle lives in the bottom sheet, but no longer holds its own drink row —
+// the drink options now float around the cup itself (see FloatingDrinks
+// below). This component is now fully controlled from App.
+const OtherDrinksToggle = memo(function OtherDrinksToggle({ open, onToggle }) {
   return (
-    <div className="mt-3">
-      <div className="flex justify-center">
-        <motion.button
-          onClick={() => setOpen((o) => !o)}
-          whileTap={{ scale: 0.94 }}
-          className="flex items-center gap-1.5 bg-mist px-3.5 py-1.5 rounded-full shadow-card"
-          aria-label={open ? 'Close other drinks' : 'Add another drink'}
-        >
-          <motion.span animate={{ rotate: open ? 45 : 0 }} className="flex">
-            <Plus className="w-3.5 h-3.5 text-aqua-deep" strokeWidth={3} />
-          </motion.span>
-          <span className="font-body text-[11px] font-bold text-inkSoft uppercase tracking-wide">
-            {open ? 'Close' : 'Other drinks'}
-          </span>
-        </motion.button>
-      </div>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className="overflow-hidden"
-          >
-            <div className="flex justify-center gap-3 pt-3 flex-wrap">
-              {DRINK_TYPES.map((drink) => {
-                const Icon = drink.icon
-                return (
-                  <motion.button
-                    key={drink.id}
-                    whileTap={{ scale: 0.88 }}
-                    onClick={() => {
-                      onAdd(step, drink.color)
-                      setOpen(false)
-                    }}
-                    className="hand-wobble flex flex-col items-center justify-center gap-0.5 w-14 h-14 rounded-2xl shadow-card text-white shrink-0"
-                    style={{ backgroundColor: drink.color }}
-                    aria-label={`Add ${drink.label}`}
-                  >
-                    <Icon className="w-4.5 h-4.5" />
-                    <span className="font-body text-[8px] font-bold leading-none">{drink.label}</span>
-                  </motion.button>
-                )
-              })}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="mt-3 flex justify-center">
+      <motion.button
+        onClick={onToggle}
+        whileTap={{ scale: 0.94 }}
+        className="flex items-center gap-1.5 bg-mist px-3.5 py-1.5 rounded-full shadow-card"
+        aria-label={open ? 'Close other drinks' : 'Add another drink'}
+      >
+        <motion.span animate={{ rotate: open ? 45 : 0 }} className="flex">
+          <Plus className="w-3.5 h-3.5 text-aqua-deep" strokeWidth={3} />
+        </motion.span>
+        <span className="font-body text-[11px] font-bold text-inkSoft uppercase tracking-wide">
+          {open ? 'Close' : 'Other drinks'}
+        </span>
+      </motion.button>
     </div>
+  )
+})
+
+// Drink-type circles that appear around the cup and gently float/orbit in
+// place while open. Each circle shows just the drink's icon, centered.
+// Positioned relative to the cup's own wrapper div, so "around the cup"
+// tracks the cup regardless of screen size.
+const ORBIT_SPOTS = [
+  { top: '0%', left: '-10%' },
+  { top: '0%', right: '-10%' },
+  { bottom: '16%', left: '-15%' },
+  { bottom: '16%', right: '-15%' },
+]
+
+const FloatingDrinks = memo(function FloatingDrinks({ open, step, onAdd }) {
+  return (
+    <AnimatePresence>
+      {open &&
+        DRINK_TYPES.map((drink, i) => {
+          const Icon = drink.icon
+          const spot = ORBIT_SPOTS[i % ORBIT_SPOTS.length]
+          const floatX = 6 + (i % 2) * 5
+          const floatY = 7 + (i % 3) * 4
+          const duration = 5.5 + i * 0.9
+          return (
+            <motion.button
+              key={drink.id}
+              initial={{ opacity: 0, scale: 0.4 }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                x: [0, floatX, -floatX * 0.6, 0],
+                y: [0, -floatY, floatY * 0.7, 0],
+              }}
+              exit={{ opacity: 0, scale: 0.4 }}
+              transition={{
+                opacity: { duration: 0.25 },
+                scale: { type: 'spring', stiffness: 300, damping: 20 },
+                x: { duration, repeat: Infinity, ease: 'easeInOut', delay: i * 0.3 },
+                y: { duration: duration * 1.15, repeat: Infinity, ease: 'easeInOut', delay: i * 0.2 },
+              }}
+              whileTap={{ scale: 0.85 }}
+              onClick={() => onAdd(step, drink.color)}
+              className="hand-wobble absolute w-14 h-14 rounded-full shadow-card flex items-center justify-center text-white z-20"
+              style={{ backgroundColor: drink.color, ...spot }}
+              aria-label={`Add ${drink.label}`}
+            >
+              <Icon className="w-6 h-6" />
+            </motion.button>
+          )
+        })}
+    </AnimatePresence>
   )
 })
 
@@ -628,11 +616,11 @@ const StepModal = memo(function StepModal({ step, onChange, onClose }) {
 /* ---------------------------------- App ---------------------------------- */
 
 export default function App() {
-  const [stage, setStage] = useState(loadStage) // 'onboarding' | 'dashboard'
-  const [user, setUser] = useState(loadUser)
+  const [stage, setStage] = useState('onboarding') // 'onboarding' | 'dashboard'
+  const [user, setUser] = useState(null)
   const [overlay, setOverlay] = useState(null) // null | 'insights' | 'account'
 
-  const [goal, setGoal] = useState(loadGoal)
+  const [goal] = useState(64)
   const [history, setHistory] = useState(loadHistory) // { 'YYYY-MM-DD': ozConsumed }
   const [dayOffset, setDayOffset] = useState(0) // 0 = today, 1 = yesterday, ...
   const [toasts, setToasts] = useState([])
@@ -642,6 +630,7 @@ export default function App() {
   // tint toward whatever's actually been added. In-memory only (resets on
   // reload), which is fine since it's a light visual touch, not core data.
   const [drinkMix, setDrinkMix] = useState({})
+  const [otherDrinksOpen, setOtherDrinksOpen] = useState(false)
 
   // Persist intake history so streaks and past days survive a reload.
   useEffect(() => {
@@ -668,7 +657,6 @@ export default function App() {
 
   const current = history[selectedKey] || 0
   const streak = useMemo(() => computeStreak(history, goal), [history, goal])
-  const percentLabel = useMemo(() => Math.round((current / goal) * 100), [current, goal])
 
   // Blend today's logged drink colors into a single tint, weighted by how
   // much of today's total they make up (capped so it stays subtle).
@@ -693,8 +681,7 @@ export default function App() {
 
   const spawnToast = useCallback((amount) => {
     const id = Math.random().toString(36).slice(2)
-    const left = 40 + Math.random() * 20
-    setToasts((t) => [...t, { id, amount, left }])
+    setToasts((t) => [...t, { id, amount }])
     setTimeout(() => {
       setToasts((t) => t.filter((toast) => toast.id !== id))
     }, 1100)
@@ -723,13 +710,20 @@ export default function App() {
   const goPrevDay = useCallback(() => setDayOffset((d) => Math.min(d + 1, 365)), [])
   const goNextDay = useCallback(() => setDayOffset((d) => Math.max(d - 1, 0)), [])
 
+  const addOtherDrink = useCallback(
+    (amount, color) => {
+      addWater(amount, color)
+      setOtherDrinksOpen(false)
+    },
+    [addWater]
+  )
+
   const openInsights = useCallback(() => setOverlay('insights'), [])
   const openAccount = useCallback(() => setOverlay('account'), [])
   const closeOverlay = useCallback(() => setOverlay(null), [])
 
   const handleOnboardingComplete = useCallback((userData) => {
     setUser(userData)
-    if (userData?.goal) setGoal(userData.goal)
     setStage('dashboard')
   }, [])
 
@@ -745,7 +739,7 @@ export default function App() {
 
       {/* top bar — insights, swipeable date pill, and account all in one row, same size */}
       <div className="flex items-center gap-2 px-4 pt-[max(1.25rem,env(safe-area-inset-top))] relative z-10">
-        <InsightsButton onClick={openInsights} streak={streak} />
+        <InsightsButton onClick={openInsights} streak={streak} current={current} goal={goal} />
         <DatePill
           selectedDate={selectedDate}
           isToday={isToday}
@@ -762,9 +756,11 @@ export default function App() {
         <div className="relative">
           <WaterCup current={current} goal={goal} tint={isToday ? tint : null} drinkMix={isToday ? drinkMix : {}} />
 
+          <FloatingDrinks open={otherDrinksOpen} step={step} onAdd={addOtherDrink} />
+
           <AnimatePresence>
             {toasts.map((t) => (
-              <Droplet key={t.id} left={t.left} top={30} amount={t.amount} />
+              <Droplet key={t.id} amount={t.amount} />
             ))}
           </AnimatePresence>
         </div>
@@ -772,7 +768,6 @@ export default function App() {
         <div className="flex items-baseline gap-1 mt-4">
           <span className="font-body font-black text-4xl text-ink">{Math.round(current)}</span>
           <span className="font-body text-inkSoft font-bold">/ {goal} oz</span>
-          <span className="font-body text-aqua-deep font-bold text-sm ml-2">{percentLabel}%</span>
         </div>
 
         {!isToday && (
@@ -825,7 +820,7 @@ export default function App() {
           ))}
         </div>
 
-        <OtherDrinksToggle step={step} onAdd={addWater} />
+        <OtherDrinksToggle open={otherDrinksOpen} onToggle={() => setOtherDrinksOpen((o) => !o)} />
       </div>
 
       {/* overlays — lazy loaded, only pulled in when opened */}
