@@ -236,7 +236,7 @@ const Droplet = memo(function Droplet({ amount, units }) {
   )
 })
 
-const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onRemoveDrink, units }) {
+const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onRemoveDrink, units, splashSignal }) {
   const clipId = useId()
   const gradId = useId()
   const ratio = goal > 0 ? current / goal : 0
@@ -323,65 +323,88 @@ const WaterCup = memo(function WaterCup({ current, goal, tint, drinkEntries, onR
         <path d={CUP_PATH} fill="#FFFFFF" opacity="0.5" />
 
         <g clipPath={`url(#${clipId})`}>
-          <motion.rect
-            x="0"
-            width="200"
-            fill={`url(#${gradId})`}
-            initial={false}
-            animate={{ y: fillY, height: fillHeight + 20 }}
-            transition={{ type: 'spring', stiffness: 120, damping: 18 }}
-          />
+          {(() => {
+            const fill = (
+              <>
+                <motion.rect
+                  x="0"
+                  width="200"
+                  fill={`url(#${gradId})`}
+                  initial={false}
+                  animate={{ y: fillY, height: fillHeight + 20 }}
+                  transition={{ type: 'spring', stiffness: 120, damping: 18 }}
+                />
 
-          <motion.g
-            initial={false}
-            animate={{ y: fillY }}
-            transition={{ type: 'spring', stiffness: 120, damping: 18 }}
-          >
-            <path
-              d="M-40 0 C -10 -8, 20 8, 50 0 C 80 -8, 110 8, 140 0 C 170 -8, 200 8, 230 0 C 260 -8, 280 4, 300 0 L 300 10 L -40 10 Z"
-              fill="#B7ECF3"
-              opacity="0.55"
-              className="wave-scroll"
-            />
-          </motion.g>
+                <motion.g
+                  initial={false}
+                  animate={{ y: fillY }}
+                  transition={{ type: 'spring', stiffness: 120, damping: 18 }}
+                >
+                  <path
+                    d="M-40 0 C -10 -8, 20 8, 50 0 C 80 -8, 110 8, 140 0 C 170 -8, 200 8, 230 0 C 260 -8, 280 4, 300 0 L 300 10 L -40 10 Z"
+                    fill="#B7ECF3"
+                    opacity="0.55"
+                    className="wave-scroll"
+                  />
+                </motion.g>
 
-          <ellipse cx="55" cy="60" rx="10" ry="70" fill="#FFFFFF" opacity="0.18" />
+                <ellipse cx="55" cy="60" rx="10" ry="70" fill="#FFFFFF" opacity="0.18" />
 
-          {/* thin pour-level lines for logged non-water drinks — drawn above the
-              wave/highlight so they stay tappable even once water rises over them */}
-          <AnimatePresence>
-            {markers.map((m) => (
+                {/* thin pour-level lines for logged non-water drinks — drawn above the
+                    wave/highlight so they stay tappable even once water rises over them */}
+                <AnimatePresence>
+                  {markers.map((m) => (
+                    <motion.g
+                      key={m.id}
+                      initial={{ opacity: 0, y: 252 }}
+                      animate={{ opacity: 1, y: m.y }}
+                      exit={{ opacity: 0, scale: 0.6 }}
+                      transition={{ type: 'spring', stiffness: 150, damping: 20 }}
+                      style={{ cursor: 'pointer' }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setActiveEntryId((id) => (id === m.id ? null : m.id))
+                      }}
+                    >
+                      <path
+                        d="M42 0 C 68 -3, 92 3, 116 0 C 132 -2, 144 2, 154 0"
+                        fill="none"
+                        stroke={m.color}
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        opacity="0.85"
+                      />
+                      {/* wider invisible stroke = easier tap target than the thin line */}
+                      <path
+                        d="M42 0 C 68 -3, 92 3, 116 0 C 132 -2, 144 2, 154 0"
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth="18"
+                      />
+                      <circle cx="154" cy="0" r="6.5" fill={m.color} stroke="#FFFFFF" strokeWidth="1.5" />
+                    </motion.g>
+                  ))}
+                </AnimatePresence>
+              </>
+            )
+            // Only wrap in the sloshing animation once a splash has actually
+            // happened (nonce > 0) — otherwise the cup would wobble on first
+            // load for no reason. Tilts toward `dir` then settles back to 0,
+            // pivoting from the bottom-center of the glass like real liquid.
+            if (!splashSignal?.nonce) return fill
+            const dir = splashSignal.dir || 1
+            return (
               <motion.g
-                key={m.id}
-                initial={{ opacity: 0, y: 252 }}
-                animate={{ opacity: 1, y: m.y }}
-                exit={{ opacity: 0, scale: 0.6 }}
-                transition={{ type: 'spring', stiffness: 150, damping: 20 }}
-                style={{ cursor: 'pointer' }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setActiveEntryId((id) => (id === m.id ? null : m.id))
-                }}
+                key={splashSignal.nonce}
+                initial={{ rotate: dir * 7 }}
+                animate={{ rotate: [dir * 7, -dir * 4, dir * 2, 0] }}
+                transition={{ duration: 0.7, ease: 'easeOut' }}
+                style={{ transformOrigin: '100px 252px' }}
               >
-                <path
-                  d="M42 0 C 68 -3, 92 3, 116 0 C 132 -2, 144 2, 154 0"
-                  fill="none"
-                  stroke={m.color}
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  opacity="0.85"
-                />
-                {/* wider invisible stroke = easier tap target than the thin line */}
-                <path
-                  d="M42 0 C 68 -3, 92 3, 116 0 C 132 -2, 144 2, 154 0"
-                  fill="none"
-                  stroke="transparent"
-                  strokeWidth="18"
-                />
-                <circle cx="154" cy="0" r="6.5" fill={m.color} stroke="#FFFFFF" strokeWidth="1.5" />
+                {fill}
               </motion.g>
-            ))}
-          </AnimatePresence>
+            )
+          })()}
         </g>
 
         <path
@@ -853,6 +876,10 @@ export default function App() {
   // (resets on reload), matching drinkMix above.
   const [otherDrinkEntries, setOtherDrinkEntries] = useState([])
   const [otherDrinksOpen, setOtherDrinksOpen] = useState(false)
+  // Bumped every time addWater actually changes today's total, so WaterCup
+  // can play a one-off "slosh" animation without re-rendering on every
+  // unrelated state change (e.g. switching days).
+  const [splashSignal, setSplashSignal] = useState({ nonce: 0, dir: 1 })
 
   // Persist intake history so streaks and past days survive a reload.
   useEffect(() => {
@@ -942,6 +969,7 @@ export default function App() {
     (amount, color = null) => {
       const prevToday = history[todayKey] || 0
       const nextVal = Math.max(0, Math.min(MAX_DAILY_OZ, prevToday + amount))
+      const actualDelta = nextVal - prevToday
       setHistory((h) => ({ ...h, [todayKey]: nextVal }))
       if (amount > 0) {
         spawnToast(amount)
@@ -952,6 +980,10 @@ export default function App() {
             { id: Math.random().toString(36).slice(2), color, amount, atOz: nextVal },
           ])
         }
+      }
+      // Only splash if the level actually moved (e.g. not tapping minus at 0).
+      if (actualDelta !== 0) {
+        setSplashSignal((s) => ({ nonce: s.nonce + 1, dir: actualDelta > 0 ? 1 : -1 }))
       }
       setDayOffset(0)
     },
@@ -980,7 +1012,7 @@ export default function App() {
     [otherDrinkEntries, todayKey]
   )
 
-  const goPrevDay = useCallback(() => setDayOffset((d) => Math.min(d + 1, 365)), [])
+  const goPrevDay = useCallback(() => setDayOffset((d) => d + 1), [])
   const goNextDay = useCallback(() => setDayOffset((d) => Math.max(d - 1, 0)), [])
   const goToday = useCallback(() => setDayOffset(0), [])
 
@@ -1037,6 +1069,7 @@ export default function App() {
             drinkEntries={isToday ? otherDrinkEntries : []}
             onRemoveDrink={removeOtherDrink}
             units={units}
+            splashSignal={splashSignal}
           />
 
           <FloatingDrinks open={otherDrinksOpen} drinkSettings={drinkSettings} onAdd={addOtherDrink} />
