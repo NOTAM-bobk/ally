@@ -295,14 +295,14 @@ export default function Insights({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-40 bg-mist flex flex-col"
+      className="absolute inset-0 z-40 bg-mist flex flex-col"
     >
       <motion.div
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: -20, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-        className="flex-1 flex flex-col overflow-y-auto px-6 pt-8 pb-10"
+        className="flex-1 flex flex-col overflow-y-auto px-6 pt-8 pb-10 [-webkit-overflow-scrolling:touch] [overscroll-behavior:contain]"
       >
         <div className="flex items-center justify-between mb-4">
           <h1 className="font-hand text-4xl text-ink">Your insights</h1>
@@ -326,7 +326,7 @@ export default function Insights({
             What you drink
           </p>
           {pieTotal > 0 ? (
-            <div className="flex items-center gap-5">
+            <div className="flex flex-col items-center gap-5">
               <div className="relative shrink-0">
                 <DonutChart segments={pieSegments} />
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
@@ -336,18 +336,24 @@ export default function Insights({
                   </span>
                 </div>
               </div>
-              <div className="flex-1 min-w-0 flex flex-col gap-2.5">
+              <div className="w-full grid grid-cols-2 gap-x-3 gap-y-2.5">
                 {pieSegments
                   .filter((s) => s.value > 0)
                   .sort((a, b) => b.value - a.value)
-                  .map((s) => (
-                    <div key={s.id} className="flex items-center gap-2">
+                  .map((s, i) => (
+                    <motion.div
+                      key={s.id}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.15 + i * 0.05 }}
+                      className="flex items-center gap-1.5 min-w-0"
+                    >
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                      <span className="font-body text-xs font-bold text-ink flex-1 truncate">{s.label}</span>
-                      <span className="font-body text-xs font-bold text-inkSoft shrink-0">
+                      <span className="font-body text-xs font-bold text-ink truncate min-w-0">{s.label}</span>
+                      <span className="font-body text-xs font-bold text-inkSoft shrink-0 ml-auto">
                         {Math.round((s.value / pieTotal) * 100)}%
                       </span>
-                    </div>
+                    </motion.div>
                   ))}
               </div>
             </div>
@@ -363,18 +369,18 @@ export default function Insights({
           <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-4">
             Last 7 days
           </p>
-          <div className="flex items-end justify-between gap-2 h-32">
-            {last7.map((d) => {
+          <div className="flex items-stretch justify-between gap-2 h-32">
+            {last7.map((d, i) => {
               const pct = goal > 0 ? Math.max(0, Math.min(1, d.amount / goal)) : 0
               const superHydrated = goal > 0 && d.amount / goal >= 1.4
               const goalMet = goal > 0 && d.amount >= goal
               return (
                 <div key={d.key} className="flex-1 flex flex-col items-center gap-2">
-                  <div className="w-full h-full flex items-end rounded-full bg-mist overflow-hidden relative">
+                  <div className="w-full flex-1 min-h-0 flex items-end rounded-full bg-mist overflow-hidden relative">
                     <motion.div
                       initial={{ height: 0 }}
                       animate={{ height: `${pct * 100}%` }}
-                      transition={{ type: 'spring', stiffness: 120, damping: 16 }}
+                      transition={{ type: 'spring', stiffness: 120, damping: 16, delay: i * 0.05 }}
                       className={`w-full rounded-full bg-gradient-to-t ${
                         superHydrated
                           ? 'from-sunshine to-sunshine'
