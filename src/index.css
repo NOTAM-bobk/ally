@@ -1,3 +1,8 @@
+/* Extra body-text fonts for Account → Appearance → Font. Nunito is already
+   the default (loaded elsewhere in the app), so it isn't repeated here.
+   @import must come before any other rule, including @tailwind. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Lora:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -16,8 +21,8 @@ html, body, #root {
 }
 
 body {
-  background: #EFF7F7;
-  color: #223238;
+  background: var(--surface-app, #EFF7F7);
+  color: var(--text-primary, #223238);
   font-family: 'Nunito', sans-serif;
 }
 
@@ -83,4 +88,77 @@ body {
 
 .hand-wobble:active {
   transform: rotate(-1.5deg) scale(0.97);
+}
+
+/* ---------------------------------------------------------------------
+   Dark mode. App.jsx toggles a .dark class on <html> based on the theme
+   setting in Account → Appearance. Only the neutral surface/text tokens
+   invert here — accent colors (aqua, coral, sunshine, drink colors) stay
+   as-is on purpose, same as most apps' dark modes.
+
+   These override the compiled Tailwind utility classes directly (rather
+   than needing tailwind.config changes), so a plain "!important" pairing
+   with the .dark ancestor class is enough — two classes always beats one
+   in specificity, regardless of source order.
+--------------------------------------------------------------------- */
+:root {
+  --surface-app: #EFF7F7;   /* bg-mist */
+  --surface-card: #ffffff;  /* bg-white */
+  --surface-raised: #E1EDEE; /* bg-mistDeep / divide-mistDeep */
+  --text-primary: #223238;  /* text-ink */
+  --text-soft: #5C7278;     /* text-inkSoft */
+}
+
+.dark {
+  --surface-app: #141F24;
+  --surface-card: #1C2A30;
+  --surface-raised: #26383F;
+  --text-primary: #EFF7F7;
+  --text-soft: #93A8AD;
+}
+
+.dark #root {
+  background: var(--surface-app);
+}
+
+.dark .bg-mist {
+  background-color: var(--surface-app) !important;
+}
+
+.dark .bg-white {
+  background-color: var(--surface-card) !important;
+}
+
+.dark .bg-mistDeep {
+  background-color: var(--surface-raised) !important;
+}
+
+.dark .divide-mistDeep > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--surface-raised) !important;
+}
+
+.dark .text-ink {
+  color: var(--text-primary) !important;
+}
+
+.dark .text-inkSoft {
+  color: var(--text-soft) !important;
+}
+
+/* Body-text font choices from Account → Appearance → Font. 'nunito' is the
+   default set on body above, so it needs no rule here — add a new font by
+   adding both an entry in Account.jsx's FONT_OPTIONS and a block below. */
+.font-choice-inter body,
+.font-choice-inter .font-body {
+  font-family: 'Inter', sans-serif !important;
+}
+
+.font-choice-serif body,
+.font-choice-serif .font-body {
+  font-family: 'Lora', serif !important;
+}
+
+.font-choice-mono body,
+.font-choice-mono .font-body {
+  font-family: 'JetBrains Mono', monospace !important;
 }
