@@ -8,16 +8,13 @@ import {
   PartyPopper,
   Trophy,
   GlassWater,
-  Coffee,
-  Leaf,
-  Milk,
-  CupSoda,
   X,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
 import Onboarding from './Onboarding.jsx'
 import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount } from './units.js'
+import { DRINK_TYPES, DRINK_BY_COLOR } from './drinkTypes.js'
 
 // Account and Insights are only needed once the user opens them, so they're
 // code-split out of the main bundle (perf: smaller initial JS payload).
@@ -39,14 +36,8 @@ const DEFAULT_GOAL = 64
 const MAX_DAILY_OZ = 500 // sane ceiling so numbers can't grow forever
 const GOAL_BANNER_MS = 5000 // how long the "Goal reached!" pill stays up
 
-// Other drinks logged from the "Other drinks" toggle. Each tints the cup a little toward its color.
-const DRINK_TYPES = [
-  { id: 'coffee', label: 'Coffee', icon: Coffee, color: '#6F4E37' },
-  { id: 'tea', label: 'Tea', icon: Leaf, color: '#C17817' },
-  { id: 'juice', label: 'Juice', icon: CupSoda, color: '#FF8C42' },
-  { id: 'milk', label: 'Milk', icon: Milk, color: '#EADFC8' },
-]
-const DRINK_BY_COLOR = Object.fromEntries(DRINK_TYPES.map((d) => [d.color, d]))
+// Other drinks — see drinkTypes.js to add, remove, recolor, or re-icon any
+// of these; this file only consumes the list.
 
 // Per-drink customization: each drink can be shown/hidden and given its own
 // tap amount (in oz), independent of the others and independent of the main
@@ -156,6 +147,30 @@ function loadUser() {
   } catch {
     return null
   }
+}
+
+// Onboarding may store the name under a couple of different keys depending
+// on how it was built — check the common ones so the avatar has the best
+// shot at finding a real name.
+function getUserName(user) {
+  return user?.name || user?.firstName || user?.displayName || ''
+}
+
+// A small, warm-but-varied palette for account avatars — picked to sit
+// comfortably alongside the app's aqua/coral/sunshine theme rather than
+// clashing with it.
+const AVATAR_COLORS = ['#1C93D1', '#E8895F', '#C17817', '#5E8C61', '#B77BA3', '#D8686B', '#4F9A94']
+
+// Deterministic "random" color — same name always lands on the same color
+// (like Slack/Gmail avatars), so it doesn't shuffle on every render/reload.
+function getAvatarColor(name) {
+  if (!name) return AVATAR_COLORS[0]
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash << 5) - hash + name.charCodeAt(i)
+    hash |= 0
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 
 // The personalized goal Onboarding calculated (gender/age/height/weight/activity),
@@ -503,15 +518,21 @@ const PresetButton = memo(function PresetButton({ amount, maxAmount, units, onTa
   )
 })
 
-const AccountButton = memo(function AccountButton({ onClick }) {
+const AccountButton = memo(function AccountButton({ onClick, name }) {
+  const initial = name?.trim()?.[0]?.toUpperCase()
   return (
     <motion.button
       onClick={onClick}
       whileTap={{ scale: 0.9 }}
-      className="w-11 h-11 shrink-0 rounded-full bg-white/80 backdrop-blur shadow-card flex items-center justify-center"
+      className="w-11 h-11 shrink-0 rounded-full shadow-card flex items-center justify-center backdrop-blur"
+      style={{ backgroundColor: initial ? getAvatarColor(name) : 'rgba(255,255,255,0.8)' }}
       aria-label="Account"
     >
-      <UserCircle2 className="w-5 h-5 text-aqua-deep" />
+      {initial ? (
+        <span className="font-hand text-xl text-white leading-none">{initial}</span>
+      ) : (
+        <UserCircle2 className="w-5 h-5 text-aqua-deep" />
+      )}
     </motion.button>
   )
 })
@@ -1110,7 +1131,7 @@ export default function App() {
           onNext={goNextDay}
           onToday={goToday}
         />
-        <AccountButton onClick={openAccount} />
+        <AccountButton onClick={openAccount} name={getUserName(user)} />
       </div>
 
       {/* cup stage — nudged up a bit via the extra bottom padding below */}
@@ -1167,89 +1188,89 @@ export default function App() {
           <motion.button
             onClick={() => addWater(step)}
             whileTap={{ scale: 0.85 }}
-            className="w-[52px] h-[52px] rounded-full bg-coral shadow-card flex items-center justify-center active:bg-coral-deep"
+            className="w-[52px] h-[52px] rounded-full bg-aqua-deep shadow-card flex items-center justify-center active:bg-aqua-deep/80"
           >
             <Plus className="w-5 h-5 text-white" strokeWidth={3} />
           </motion.button>
         </div>
       </div>
 
-      {/* bottom sheet — swipe between Quick add (water presets) and Other
-          drinks (side-scrolling drink picker), docked like a real app's
-          action tray */}
-      <div className="relative z-10 bg-white rounded-t-[32px] shadow-[0_-8px_24px_rgba(28,50,56,0.10)] px-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-hidden">
+      {/* bottom sheet — swipe anywhere on the card to switch between Quick
+          add (water presets) and Other drinks (side-scrolling drink
+          picker), docked like a real app's action tray */}
+      <motion.div
+        drag={hasOtherDrinks ? 'x' : false}
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.4}
+        onDragEnd={handleBottomPagerDragEnd}
+        className="relative z-10 bg-white rounded-t-[32px] shadow-[0_-8px_24px_rgba(28,50,56,0.10)] px-6 pt-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] overflow-hidden touch-pan-y"
+      >
         {hasOtherDrinks && (
-          <motion.div
-            drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={0.5}
-            onDragEnd={handleBottomPagerDragEnd}
-            whileTap={{ scale: 0.9 }}
-            className="w-10 h-1.5 bg-mistDeep rounded-full mx-auto mb-2.5 cursor-grab active:cursor-grabbing touch-pan-y"
-            aria-label={bottomPage === 0 ? 'Swipe for other drinks' : 'Swipe for quick add'}
+          <div
+            className="w-10 h-1.5 bg-mistDeep rounded-full mx-auto mb-2.5"
+            aria-hidden="true"
           />
         )}
 
-        <div
-          {...(hasOtherDrinks && bottomPage === 0
-            ? { drag: 'x', dragConstraints: { left: 0, right: 0 }, dragElastic: 0.4, onDragEnd: handleBottomPagerDragEnd }
-            : {})}
-          className="touch-pan-y"
-        >
-          <AnimatePresence mode="wait" custom={pagerDir} initial={false}>
-            {bottomPage === 0 ? (
-              <motion.div
-                key="presets"
-                custom={pagerDir}
-                variants={bottomPagerVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+        <AnimatePresence mode="wait" custom={pagerDir} initial={false}>
+          {bottomPage === 0 ? (
+            <motion.div
+              key="presets"
+              custom={pagerDir}
+              variants={bottomPagerVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+            >
+              <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
+                Quick add
+              </p>
+              <div className="flex gap-2.5">
+                {presets.map((amount, i) => (
+                  <PresetButton
+                    key={i}
+                    amount={amount}
+                    maxAmount={Math.max(...presets)}
+                    units={units}
+                    onTap={addWater}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="drinks"
+              custom={pagerDir}
+              variants={bottomPagerVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+            >
+              <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
+                Other drinks
+              </p>
+              {/* Stops the card's own swipe-to-switch-pages gesture from
+                  hijacking touches here, so this row can still be scrolled
+                  natively to browse drinks. */}
+              <div
+                onPointerDownCapture={(e) => e.stopPropagation()}
+                className="flex gap-2.5 overflow-x-auto snap-x snap-proximity pb-1 -mx-6 px-6"
               >
-                <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
-                  Quick add
-                </p>
-                <div className="flex gap-2.5">
-                  {presets.map((amount, i) => (
-                    <PresetButton
-                      key={i}
-                      amount={amount}
-                      maxAmount={Math.max(...presets)}
-                      units={units}
-                      onTap={addWater}
-                    />
-                  ))}
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="drinks"
-                custom={pagerDir}
-                variants={bottomPagerVariants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ type: 'spring', stiffness: 380, damping: 32 }}
-              >
-                <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
-                  Other drinks
-                </p>
-                <div className="flex gap-2.5 overflow-x-auto snap-x snap-proximity pb-1 -mx-6 px-6">
-                  {activeDrinkTypes.map((drink) => (
-                    <DrinkChip
-                      key={drink.id}
-                      drink={drink}
-                      step={drinkSettings[drink.id]?.step || DEFAULT_STEP}
-                      units={units}
-                      onTap={addOtherDrink}
-                    />
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+                {activeDrinkTypes.map((drink) => (
+                  <DrinkChip
+                    key={drink.id}
+                    drink={drink}
+                    step={drinkSettings[drink.id]?.step || DEFAULT_STEP}
+                    units={units}
+                    onTap={addOtherDrink}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {hasOtherDrinks && (
           <div className="flex justify-center gap-1.5 mt-3">
@@ -1265,7 +1286,7 @@ export default function App() {
             ))}
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* overlays — lazy loaded, only pulled in when opened */}
       <AnimatePresence>
