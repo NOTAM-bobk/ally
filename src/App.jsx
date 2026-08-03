@@ -3,11 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   BarChart3,
   UserCircle2,
-  Plus,
-  Minus,
   PartyPopper,
   Trophy,
   GlassWater,
+  Droplet as WaterDropIcon,
+  Search,
+  Undo2,
   X,
   ChevronLeft,
   ChevronRight,
@@ -283,16 +284,22 @@ function loadDrinkHistory() {
 
 /* ------------------------------ subcomponents ------------------------------ */
 
-const Droplet = memo(function Droplet({ amount, units }) {
+const Droplet = memo(function Droplet({ amount, units, onDismiss }) {
   const isAdd = amount > 0
   const label = formatAmount(Math.abs(amount), units)
   return (
     <motion.div
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.7}
+      onDragEnd={(_e, info) => {
+        if (Math.abs(info.offset.x) > 36) onDismiss?.()
+      }}
       initial={{ opacity: 0, scale: 0.5, y: 8 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.7, y: -16 }}
       transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-      className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-hand text-2xl font-bold px-5 py-2 rounded-full shadow-soft pointer-events-none select-none whitespace-nowrap z-30 ${
+      className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-hand text-2xl font-bold px-5 py-2 rounded-full shadow-soft select-none whitespace-nowrap z-30 cursor-grab active:cursor-grabbing touch-pan-y ${
         isAdd ? 'bg-aqua-deep text-white' : 'bg-white text-ink'
       }`}
     >
@@ -679,8 +686,17 @@ const DatePill = memo(function DatePill({ selectedDate, isToday, onNext, onPrev,
     }
   }, [])
 
+  const draggedRef = useRef(false)
+
   const handleDragEnd = useCallback(
     (_e, info) => {
+      // Marks this gesture as a drag so the onTap handler below (which can
+      // otherwise fire right alongside onDragEnd on the same pointerup)
+      // doesn't also treat it as a tap-to-return-to-today.
+      draggedRef.current = true
+      setTimeout(() => {
+        draggedRef.current = false
+      }, 300)
       const threshold = 46
       if (info.offset.x <= -threshold) {
         if (!isToday) onNext()
@@ -706,6 +722,7 @@ const DatePill = memo(function DatePill({ selectedDate, isToday, onNext, onPrev,
       onDragStart={dismissHint}
       onTap={() => {
         dismissHint()
+        if (draggedRef.current) return
         if (!isToday) onToday()
       }}
       whileTap={{ scale: 0.97 }}
@@ -919,12 +936,20 @@ export default function App() {
   // its own line marker in the cup and be removed on its own. In-memory only
   // (resets on reload), matching drinkMix above.
   const [otherDrinkEntries, setOtherDrinkEntries] = useState([])
+  // The single most recent log (water or other drink), so the Undo button
+  // knows exactly what to reverse. Cleared once undone, or once something
+  // else is logged on top of it.
+  const [lastLog, setLastLog] = useState(null) // { amount, color, entryId } | null
   // Which page of the bottom sheet is showing — 0 = Quick add (water
   // presets), 1 = Other drinks (side-scrolling drink picker). pagerDir
   // tracks which way the last switch happened so the page can slide in
   // from the right direction.
   const [bottomPage, setBottomPage] = useState(0)
   const [pagerDir, setPagerDir] = useState(1)
+  // Search within the "Other drinks" strip — collapsed by default, opens
+  // into a small inline field. Resets whenever you leave that page.
+  const [drinkSearchOpen, setDrinkSearchOpen] = useState(false)
+  const [drinkQuery, setDrinkQuery] = useState('')
   // Bumped every time addWater actually changes today's total, so WaterCup
   // can play a one-off "slosh" animation without re-rendering on every
   // unrelated state change (e.g. switching days).
@@ -1041,6 +1066,23 @@ export default function App() {
   )
   const hasOtherDrinks = activeDrinkTypes.length > 0
 
+  // Narrows the strip to drinks whose name matches the search field —
+  // useful once there are more than a handful of drink types configured.
+  const filteredDrinkTypes = useMemo(() => {
+    const q = drinkQuery.trim().toLowerCase()
+    if (!q) return activeDrinkTypes
+    return activeDrinkTypes.filter((d) => d.label.toLowerCase().includes(q))
+  }, [activeDrinkTypes, drinkQuery])
+
+  // Leaving the drinks page (switching back to Quick add) clears any
+  // in-progress search so it isn't still open next time you swipe over.
+  useEffect(() => {
+    if (bottomPage !== 1) {
+      setDrinkSearchOpen(false)
+      setDrinkQuery('')
+    }
+  }, [bottomPage])
+
   // Blend today's logged drink colors into a single tint, weighted by how
   // much of today's total they make up (capped so it stays subtle).
   const tint = useMemo(() => {
@@ -1096,11 +1138,12 @@ export default function App() {
       if (amount > 0) {
         spawnToast(amount)
         if (color) {
+          const entryId = Math.random().toString(36).slice(2)
           setDrinkMix((m) => ({ ...m, [color]: (m[color] || 0) + amount }))
-          setOtherDrinkEntries((entries) => [
-            ...entries,
-            { id: Math.random().toString(36).slice(2), color, amount, atOz: nextVal },
-          ])
+          setOtherDrinkEntries((entries) => [...entries, { id: entryId, color, amount, atOz: nextVal }])
+          setLastLog({ amount, color, entryId })
+        } else {
+          setLastLog({ amount, color: null, entryId: null })
         }
       }
       // Only splash if the level actually moved (e.g. not tapping minus at 0).
@@ -1133,9 +1176,24 @@ export default function App() {
       })
       const bucket = DRINK_BY_COLOR[entry.color]?.id || 'water'
       bumpDrinkHistory(todayKey, bucket, -entry.amount)
+      setLastLog((last) => (last?.entryId === id ? null : last))
     },
     [otherDrinkEntries, todayKey, bumpDrinkHistory]
   )
+
+  // Reverses whatever was logged most recently (replaces the old "-"
+  // button). Plain water just gets subtracted back out; a colored drink
+  // goes through removeOtherDrink so its cup marker/tint/history all clean
+  // up together instead of leaving an orphaned marker behind.
+  const undoLast = useCallback(() => {
+    if (!lastLog) return
+    if (lastLog.color && lastLog.entryId) {
+      removeOtherDrink(lastLog.entryId)
+    } else {
+      addWater(-lastLog.amount)
+    }
+    setLastLog(null)
+  }, [lastLog, removeOtherDrink, addWater])
 
   const goPrevDay = useCallback(() => setDayOffset((d) => d + 1), [])
   const goNextDay = useCallback(() => setDayOffset((d) => Math.max(d - 1, 0)), [])
@@ -1224,7 +1282,12 @@ export default function App() {
 
           <AnimatePresence>
             {toasts.map((t) => (
-              <Droplet key={t.id} amount={t.amount} units={units} />
+              <Droplet
+                key={t.id}
+                amount={t.amount}
+                units={units}
+                onDismiss={() => setToasts((cur) => cur.filter((toast) => toast.id !== t.id))}
+              />
             ))}
           </AnimatePresence>
         </div>
@@ -1242,16 +1305,9 @@ export default function App() {
           </p>
         )}
 
-        {/* +/- controls */}
+        {/* add control — a water drop instead of a plain "+", since that's
+            the only thing this button ever does */}
         <div className="flex items-center gap-6 mt-5">
-          <motion.button
-            onClick={() => addWater(-step)}
-            whileTap={{ scale: 0.85 }}
-            className="w-[52px] h-[52px] rounded-full bg-white shadow-card flex items-center justify-center active:bg-mistDeep"
-          >
-            <Minus className="w-5 h-5 text-ink" strokeWidth={3} />
-          </motion.button>
-
           <motion.button
             onClick={() => setStepModalOpen(true)}
             whileTap={{ scale: 0.92 }}
@@ -1263,11 +1319,33 @@ export default function App() {
           <motion.button
             onClick={() => addWater(step)}
             whileTap={{ scale: 0.85 }}
-            className="w-[52px] h-[52px] rounded-full bg-aqua-deep shadow-card flex items-center justify-center active:bg-aqua-deep/80"
+            className="w-14 h-14 rounded-full bg-aqua-deep shadow-card flex items-center justify-center active:bg-aqua-deep/80"
+            aria-label={`Add ${ozToUnit(step, units)} ${UNIT_DEFS[units]?.short || 'oz'}`}
           >
-            <Plus className="w-5 h-5 text-white" strokeWidth={3} />
+            <WaterDropIcon className="w-7 h-7 text-white" fill="currentColor" strokeWidth={0} />
           </motion.button>
         </div>
+
+        {/* undo — replaces the old "-" button. Tucked in a bottom corner
+            instead of the main row since it's a rare/corrective action, not
+            a primary one, and only shows up once there's something to undo. */}
+        <AnimatePresence>
+          {lastLog && (
+            <motion.button
+              key="undo"
+              initial={{ opacity: 0, scale: 0.6, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.6, y: 8 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 26 }}
+              onClick={undoLast}
+              whileTap={{ scale: 0.85 }}
+              className="absolute bottom-3 right-6 w-10 h-10 rounded-full bg-white shadow-card flex items-center justify-center active:bg-mistDeep"
+              aria-label="Undo last drink"
+            >
+              <Undo2 className="w-4 h-4 text-inkSoft" strokeWidth={2.5} />
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* bottom sheet — swipe anywhere on the card to switch between Quick
@@ -1323,26 +1401,66 @@ export default function App() {
               exit="exit"
               transition={{ type: 'spring', stiffness: 380, damping: 32 }}
             >
-              <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70 text-center mb-2.5">
-                Other drinks
-              </p>
+              <div className="flex items-center justify-between mb-2.5">
+                <p className="font-body text-[11px] font-bold uppercase tracking-wider text-inkSoft/70">
+                  Other drinks
+                </p>
+                <motion.button
+                  onClick={() => setDrinkSearchOpen((o) => !o)}
+                  whileTap={{ scale: 0.85 }}
+                  className="w-6 h-6 rounded-full bg-mist flex items-center justify-center shrink-0"
+                  aria-label={drinkSearchOpen ? 'Close search' : 'Search drinks'}
+                >
+                  {drinkSearchOpen ? (
+                    <X className="w-3 h-3 text-inkSoft" strokeWidth={2.5} />
+                  ) : (
+                    <Search className="w-3 h-3 text-inkSoft" strokeWidth={2.5} />
+                  )}
+                </motion.button>
+              </div>
+
+              <AnimatePresence initial={false}>
+                {drinkSearchOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.18 }}
+                    className="overflow-hidden"
+                  >
+                    <input
+                      autoFocus
+                      onPointerDownCapture={(e) => e.stopPropagation()}
+                      value={drinkQuery}
+                      onChange={(e) => setDrinkQuery(e.target.value)}
+                      placeholder="Search drinks…"
+                      className="w-full bg-mist rounded-full px-3.5 py-2 mb-2.5 font-body text-sm text-ink placeholder:text-inkSoft/60 outline-none"
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {/* Stops the card's own swipe-to-switch-pages gesture from
                   hijacking touches here, so this row can still be scrolled
                   natively to browse drinks. */}
-              <div
-                onPointerDownCapture={(e) => e.stopPropagation()}
-                className="flex gap-2.5 overflow-x-auto snap-x snap-proximity pb-1 -mx-6 px-6"
-              >
-                {activeDrinkTypes.map((drink) => (
-                  <DrinkChip
-                    key={drink.id}
-                    drink={drink}
-                    step={drinkSettings[drink.id]?.step || DEFAULT_STEP}
-                    units={units}
-                    onTap={addOtherDrink}
-                  />
-                ))}
-              </div>
+              {filteredDrinkTypes.length > 0 ? (
+                <div
+                  onPointerDownCapture={(e) => e.stopPropagation()}
+                  className="flex gap-2.5 overflow-x-auto snap-x snap-proximity pb-1 -mx-6 px-6"
+                >
+                  {filteredDrinkTypes.map((drink) => (
+                    <DrinkChip
+                      key={drink.id}
+                      drink={drink}
+                      step={drinkSettings[drink.id]?.step || DEFAULT_STEP}
+                      units={units}
+                      onTap={addOtherDrink}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="font-body text-xs text-inkSoft text-center py-3">No drinks match "{drinkQuery}"</p>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
