@@ -23,6 +23,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount, unitShort } from './units.js'
+import { syncPushSubscription } from './push.js'
 
 const REMINDERS_STORAGE_KEY = 'ally-reminders'
 // Storage keys owned by App.jsx — listed here so sign-out and export/import
@@ -266,6 +267,32 @@ function GoalSheet({ goal, units, onSave, onClose }) {
 function RemindersSheet({ reminders, onSave, onClose }) {
   const [enabled, setEnabled] = useState(reminders.enabled)
   const [intervalHours, setIntervalHours] = useState(reminders.intervalHours)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  // onSave is now async: it also (de)registers a real push subscription on
+  // the backend, since these reminders need to fire even when the app is
+  // closed. If that fails (permission denied, unsupported browser, network
+  // error) we roll the toggle back and explain why instead of pretending it
+  // worked.
+  const handleSave = async () => {
+    setSaving(true)
+    setError(null)
+    const result = await onSave({ enabled, intervalHours })
+    setSaving(false)
+    if (result?.ok === false) {
+      setEnabled(false)
+      setError(
+        result.reason === 'denied'
+          ? 'Notifications are blocked for this site. Enable them in your browser or device settings, then try again.'
+          : result.reason === 'unsupported'
+          ? "This browser doesn't support push notifications."
+          : "Couldn't turn on reminders — please try again."
+      )
+      return
+    }
+    onClose()
+  }
 
   return (
     <SettingsSheet title="Reminders" onClose={onClose}>
@@ -318,15 +345,17 @@ function RemindersSheet({ reminders, onSave, onClose }) {
         )}
       </AnimatePresence>
 
+      {error && (
+        <p className="font-body text-xs text-coral-deep text-center mt-3 leading-relaxed">{error}</p>
+      )}
+
       <motion.button
         whileTap={{ scale: 0.95 }}
-        onClick={() => {
-          onSave({ enabled, intervalHours })
-          onClose()
-        }}
-        className="w-full mt-5 bg-aqua-deep text-white font-body font-bold py-3 rounded-full"
+        onClick={handleSave}
+        disabled={saving}
+        className="w-full mt-5 bg-aqua-deep text-white font-body font-bold py-3 rounded-full disabled:opacity-60"
       >
-        Save
+        {saving ? 'Saving…' : 'Save'}
       </motion.button>
     </SettingsSheet>
   )
@@ -606,13 +635,35 @@ export default function Account({
   const [importState, setImportState] = useState(null) // null | 'error' | 'done'
   const fileInputRef = useRef(null)
 
-  const saveReminders = (next) => {
+  // Persists the interval locally (as before) AND, when turning reminders
+  // on, requests notification permission and registers a real push
+  // subscription with the backend so it can wake this device even when
+  // it's closed. Returns { ok, reason? } so RemindersSheet can show an
+  // error and roll the toggle back if the subscribe step failed.
+  const saveReminders = async (next) => {
     setReminders(next)
     try {
       localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(next))
     } catch {
       // storage unavailable — setting still applies for this session
     }
+
+    const result = await syncPushSubscription(next).catch(() => ({
+      ok: false,
+      reason: 'error',
+    }))
+
+    if (next.enabled && !result.ok) {
+      const fallback = { ...next, enabled: false }
+      setReminders(fallback)
+      try {
+        localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(fallback))
+      } catch {
+        // storage unavailable — fallback still applies for this session
+      }
+    }
+
+    return result
   }
 
   const handleSignOut = () => {
