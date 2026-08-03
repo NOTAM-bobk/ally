@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
-  User,
   Bell,
   Target,
+  Ruler,
   LogOut,
   ChevronRight,
   Check,
@@ -21,11 +21,12 @@ import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount, unitShort } from './unit
 
 const REMINDERS_STORAGE_KEY = 'ally-reminders'
 const THEME_STORAGE_KEY = 'ally-theme'
-// Storage keys owned by App.jsx (units/presets/drink settings) — listed here
-// too so sign-out can clear everything this screen touches.
+// Storage keys owned by App.jsx (units/presets/drink settings/drink history)
+// — listed here too so sign-out can clear everything this screen touches.
 const UNITS_STORAGE_KEY = 'ally-units'
 const PRESETS_STORAGE_KEY = 'ally-presets'
 const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
+const DRINK_HISTORY_STORAGE_KEY = 'ally-drink-history'
 
 const INTERVAL_OPTIONS = [1, 2, 3, 4, 6]
 
@@ -70,6 +71,64 @@ function loadTheme() {
     return 'light'
   }
 }
+
+// Onboarding may store the name under a couple of different keys depending
+// on how it was built — check the common ones.
+function getUserName(user) {
+  return user?.name || user?.firstName || user?.displayName || ''
+}
+
+/* ------------------------------ shared row bits ------------------------------ */
+
+// A tappable row that opens one of the settings sheets below. Used for
+// every row in Preferences and Appearance — one implementation, so there's
+// a single place that can go wrong instead of five near-identical copies.
+function SettingsRow({ icon: Icon, label, value, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
+    >
+      <span className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
+        <Icon className="w-4.5 h-4.5 text-aqua-deep" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-body font-bold text-ink text-sm">{label}</span>
+        <span className="block font-body text-xs text-inkSoft truncate">{value}</span>
+      </span>
+      <ChevronRight className="w-4 h-4 text-ink/30 shrink-0" />
+    </button>
+  )
+}
+
+// A row that just opens an external link in a new tab (Terms, Support, etc).
+function LinkRow({ icon: Icon, label, url }) {
+  return (
+    <button
+      onClick={() => openInNewTab(url)}
+      className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
+    >
+      <span className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
+        <Icon className="w-4.5 h-4.5 text-aqua-deep" />
+      </span>
+      <span className="flex-1 min-w-0 font-body font-bold text-ink text-sm">{label}</span>
+      <ExternalLink className="w-3.5 h-3.5 text-ink/30 shrink-0" />
+    </button>
+  )
+}
+
+// A labeled white card containing a list of rows — Preferences, Appearance,
+// and More are each just one of these with a different row set.
+function Section({ title, children }) {
+  return (
+    <div className="mb-6">
+      <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-2 px-1">{title}</p>
+      <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden">{children}</div>
+    </div>
+  )
+}
+
+/* ------------------------------ settings sheets ------------------------------ */
 
 // Shared bottom-sheet shell for every settings editor.
 function SettingsSheet({ title, onClose, children }) {
@@ -123,7 +182,7 @@ function GoalSheet({ goal, units, onSave, onClose }) {
         value={ozValue}
         onChange={(e) => setOzValue(Number(e.target.value))}
         aria-label="Daily goal"
-        className="w-full mt-5 accent-coral"
+        className="w-full mt-5 accent-aqua-deep"
       />
       <div className="flex justify-between font-body text-[11px] text-inkSoft font-bold mt-1">
         <span>{formatAmount(48, units)}</span>
@@ -135,7 +194,7 @@ function GoalSheet({ goal, units, onSave, onClose }) {
           onSave(ozValue)
           onClose()
         }}
-        className="w-full mt-5 bg-coral text-white font-body font-bold py-3 rounded-full"
+        className="w-full mt-5 bg-aqua-deep text-white font-body font-bold py-3 rounded-full"
       >
         Save
       </motion.button>
@@ -204,7 +263,7 @@ function RemindersSheet({ reminders, onSave, onClose }) {
           onSave({ enabled, intervalHours })
           onClose()
         }}
-        className="w-full mt-5 bg-coral text-white font-body font-bold py-3 rounded-full"
+        className="w-full mt-5 bg-aqua-deep text-white font-body font-bold py-3 rounded-full"
       >
         Save
       </motion.button>
@@ -261,8 +320,8 @@ function ThemeSheet({ theme, onSave, onClose }) {
               !opt.available
                 ? 'bg-mist/60 text-inkSoft/50 border-transparent cursor-not-allowed'
                 : theme === opt.id
-                ? 'bg-aqua-deep text-white border-aqua-deep'
-                : 'bg-mist text-inkSoft border-transparent'
+                  ? 'bg-aqua-deep text-white border-aqua-deep'
+                  : 'bg-mist text-inkSoft border-transparent'
             }`}
           >
             <span>{opt.label}</span>
@@ -277,7 +336,9 @@ function ThemeSheet({ theme, onSave, onClose }) {
     </SettingsSheet>
   )
 }
-// currently selected, but stored back in ounces like everything else.
+
+// Amounts are stored/edited in ounces regardless of the currently selected
+// unit — only the numbers shown to the person switch with it.
 function PresetsSheet({ presets, units, onSave, onClose }) {
   const [values, setValues] = useState(presets)
   const short = unitShort(units)
@@ -309,7 +370,7 @@ function PresetsSheet({ presets, units, onSave, onClose }) {
               value={oz}
               onChange={(e) => updateAt(i, Number(e.target.value))}
               aria-label={`Quick-add preset ${i + 1}`}
-              className="w-full accent-coral"
+              className="w-full accent-aqua-deep"
             />
           </div>
         ))}
@@ -320,7 +381,7 @@ function PresetsSheet({ presets, units, onSave, onClose }) {
           onSave(values)
           onClose()
         }}
-        className="w-full mt-5 bg-coral text-white font-body font-bold py-3 rounded-full"
+        className="w-full mt-5 bg-aqua-deep text-white font-body font-bold py-3 rounded-full"
       >
         Save
       </motion.button>
@@ -328,8 +389,8 @@ function PresetsSheet({ presets, units, onSave, onClose }) {
   )
 }
 
-// Lets the person turn individual "other drinks" off (so they stop floating
-// around the cup) and set a custom tap amount for each one that's still on.
+// Lets the person turn individual "other drinks" off (so they drop out of
+// the swipe menu) and set a custom tap amount for each one that's still on.
 function DrinksSheet({ drinkTypes, drinkSettings, units, onSave, onClose }) {
   const [settings, setSettings] = useState(drinkSettings)
   const short = unitShort(units)
@@ -351,16 +412,13 @@ function DrinksSheet({ drinkTypes, drinkSettings, units, onSave, onClose }) {
           const entry = settings[drink.id] || { enabled: true, step: 8 }
           return (
             <div key={drink.id} className="bg-mist rounded-2xl px-4 py-3.5">
-              <button
-                onClick={() => toggle(drink.id)}
-                className="w-full flex items-center gap-3"
-              >
-                <div
+              <button onClick={() => toggle(drink.id)} className="w-full flex items-center gap-3">
+                <span
                   className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-white"
                   style={{ backgroundColor: drink.color }}
                 >
                   <Icon className="w-4 h-4" />
-                </div>
+                </span>
                 <span className="flex-1 text-left font-body font-bold text-sm text-ink">{drink.label}</span>
                 <span
                   className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${
@@ -400,7 +458,7 @@ function DrinksSheet({ drinkTypes, drinkSettings, units, onSave, onClose }) {
                       value={entry.step}
                       onChange={(e) => setStep(drink.id, Number(e.target.value))}
                       aria-label={`${drink.label} amount per tap`}
-                      className="w-full accent-coral"
+                      className="w-full accent-aqua-deep"
                     />
                   </motion.div>
                 )}
@@ -415,13 +473,15 @@ function DrinksSheet({ drinkTypes, drinkSettings, units, onSave, onClose }) {
           onSave(settings)
           onClose()
         }}
-        className="w-full mt-5 bg-coral text-white font-body font-bold py-3 rounded-full"
+        className="w-full mt-5 bg-aqua-deep text-white font-body font-bold py-3 rounded-full"
       >
         Save
       </motion.button>
     </SettingsSheet>
   )
 }
+
+/* --------------------------------- Account --------------------------------- */
 
 // goal/units/presets/drinkSettings all live in App and are handed down here
 // as props, with matching onChange callbacks — so any change made in this
@@ -480,6 +540,7 @@ export default function Account({
       localStorage.removeItem(UNITS_STORAGE_KEY)
       localStorage.removeItem(PRESETS_STORAGE_KEY)
       localStorage.removeItem(DRINK_SETTINGS_STORAGE_KEY)
+      localStorage.removeItem(DRINK_HISTORY_STORAGE_KEY)
     } catch {
       // storage unavailable — still hand off to the parent to reset state
     }
@@ -490,41 +551,9 @@ export default function Account({
     }
   }
 
+  const name = getUserName(user)
+  const initial = name?.trim()?.[0]?.toUpperCase() || 'A'
   const activeDrinkCount = drinkTypes.filter((d) => drinkSettings[d.id]?.enabled !== false).length
-
-  const rows = [
-    { key: 'goal', icon: Target, label: 'Daily goal', value: formatAmount(goal, units) },
-    {
-      key: 'reminders',
-      icon: Bell,
-      label: 'Reminders',
-      value: reminders.enabled ? `Every ${reminders.intervalHours} hr${reminders.intervalHours > 1 ? 's' : ''}` : 'Off',
-    },
-    { key: 'units', icon: User, label: 'Units', value: UNIT_DEFS[units]?.label || 'Ounces (oz)' },
-    {
-      key: 'presets',
-      icon: Sliders,
-      label: 'Quick-add presets',
-      value: presets.map((oz) => `${ozToUnit(oz, units)}${unitShort(units)}`).join(' · '),
-    },
-    {
-      key: 'drinks',
-      icon: GlassWater,
-      label: 'Other drinks',
-      value: drinkTypes.length ? `${activeDrinkCount} of ${drinkTypes.length} shown` : 'None',
-    },
-  ]
-
-  // Its own small section for now — more appearance settings will join
-  // "Theme" here later.
-  const appearanceRows = [
-    {
-      key: 'theme',
-      icon: Palette,
-      label: 'Theme',
-      value: THEME_OPTIONS.find((t) => t.id === theme)?.label || 'Light',
-    },
-  ]
 
   return (
     <motion.div
@@ -538,7 +567,7 @@ export default function Account({
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: -20, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-        className="flex-1 flex flex-col overflow-y-auto min-h-0 px-6 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] [overscroll-behavior:contain]"
+        className="flex-1 flex flex-col overflow-y-auto px-6 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] [overscroll-behavior:contain]"
       >
         <div className="flex items-center justify-between mb-8">
           <h1 className="font-hand text-4xl text-ink">Your account</h1>
@@ -546,6 +575,7 @@ export default function Account({
             whileTap={{ scale: 0.85, rotate: -90 }}
             onClick={onClose}
             className="w-10 h-10 rounded-full bg-white shadow-card flex items-center justify-center"
+            aria-label="Close"
           >
             <X className="w-5 h-5 text-ink" />
           </motion.button>
@@ -553,82 +583,67 @@ export default function Account({
 
         <div className="bg-gradient-to-br from-aqua to-aqua-deep rounded-3xl p-6 shadow-soft mb-6 text-white">
           <div className="w-16 h-16 rounded-full bg-white/25 flex items-center justify-center font-hand text-3xl mb-3">
-            {(user?.name?.[0] || 'A').toUpperCase()}
+            {initial}
           </div>
-          <p className="font-hand text-3xl">{user?.name || 'Friend'}</p>
+          <p className="font-hand text-3xl">{name || 'Friend'}</p>
           <p className="font-body text-sm text-white/80">{user?.email || 'you@example.com'}</p>
         </div>
 
-        <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-2 px-1">
-          Preferences
-        </p>
-        <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden mb-6">
-          {rows.map(({ key, icon: Icon, label, value }) => (
-            <button
-              key={key}
-              onClick={() => setOpenSheet(key)}
-              className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
-            >
-              <div className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
-                <Icon className="w-4.5 h-4.5 text-aqua-deep" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-body font-bold text-ink text-sm">{label}</p>
-                <p className="font-body text-xs text-inkSoft truncate">{value}</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-ink/30" />
-            </button>
-          ))}
-        </div>
+        <Section title="Preferences">
+          <SettingsRow
+            icon={Target}
+            label="Daily goal"
+            value={formatAmount(goal, units)}
+            onClick={() => setOpenSheet('goal')}
+          />
+          <SettingsRow
+            icon={Bell}
+            label="Reminders"
+            value={
+              reminders.enabled ? `Every ${reminders.intervalHours} hr${reminders.intervalHours > 1 ? 's' : ''}` : 'Off'
+            }
+            onClick={() => setOpenSheet('reminders')}
+          />
+          <SettingsRow
+            icon={Ruler}
+            label="Units"
+            value={UNIT_DEFS[units]?.label || 'Ounces (oz)'}
+            onClick={() => setOpenSheet('units')}
+          />
+          <SettingsRow
+            icon={Sliders}
+            label="Quick-add presets"
+            value={presets.map((oz) => `${ozToUnit(oz, units)}${unitShort(units)}`).join(' · ')}
+            onClick={() => setOpenSheet('presets')}
+          />
+          <SettingsRow
+            icon={GlassWater}
+            label="Other drinks"
+            value={drinkTypes.length ? `${activeDrinkCount} of ${drinkTypes.length} shown` : 'None'}
+            onClick={() => setOpenSheet('drinks')}
+          />
+        </Section>
 
-        <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-2 px-1">
-          Appearance
-        </p>
-        <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden mb-6">
-          {appearanceRows.map(({ key, icon: Icon, label, value }) => (
-            <button
-              key={key}
-              onClick={() => setOpenSheet(key)}
-              className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
-            >
-              <div className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
-                <Icon className="w-4.5 h-4.5 text-aqua-deep" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-body font-bold text-ink text-sm">{label}</p>
-                <p className="font-body text-xs text-inkSoft truncate">{value}</p>
-              </div>
-              <ChevronRight className="w-4 h-4 text-ink/30" />
-            </button>
-          ))}
-        </div>
+        <Section title="Appearance">
+          <SettingsRow
+            icon={Palette}
+            label="Theme"
+            value={THEME_OPTIONS.find((t) => t.id === theme)?.label || 'Light'}
+            onClick={() => setOpenSheet('theme')}
+          />
+        </Section>
 
-        <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-2 px-1">
-          More
-        </p>
-        <div className="bg-white rounded-3xl shadow-card divide-y divide-mistDeep overflow-hidden mb-6">
-          {QUICK_LINKS.map(({ key, icon: Icon, label, url }) => (
-            <button
-              key={key}
-              onClick={() => openInNewTab(url)}
-              className="w-full flex items-center gap-3 px-4 py-4 text-left active:bg-mist/60 transition-colors"
-            >
-              <div className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
-                <Icon className="w-4.5 h-4.5 text-aqua-deep" />
-              </div>
-              <p className="flex-1 min-w-0 font-body font-bold text-ink text-sm">{label}</p>
-              <ExternalLink className="w-3.5 h-3.5 text-ink/30" />
-            </button>
+        <Section title="More">
+          {QUICK_LINKS.map((link) => (
+            <LinkRow key={link.key} icon={link.icon} label={link.label} url={link.url} />
           ))}
-        </div>
-
-        <div className="flex-1" />
+        </Section>
 
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={handleSignOut}
           onBlur={() => setConfirmingSignOut(false)}
-          className={`w-full flex items-center justify-center gap-2 font-body font-bold py-3.5 rounded-full transition-colors ${
+          className={`w-full mt-2 flex items-center justify-center gap-2 font-body font-bold py-3.5 rounded-full transition-colors ${
             confirmingSignOut ? 'bg-coral text-white' : 'text-coral-deep'
           }`}
         >
