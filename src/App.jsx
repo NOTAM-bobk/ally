@@ -32,6 +32,9 @@ const UNITS_STORAGE_KEY = 'ally-units'
 const PRESETS_STORAGE_KEY = 'ally-presets'
 const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
 const DRINK_HISTORY_STORAGE_KEY = 'ally-drink-history'
+const THEME_STORAGE_KEY = 'ally-theme'
+const BUBBLES_STORAGE_KEY = 'ally-bubbles'
+const FONT_STORAGE_KEY = 'ally-font'
 const DEFAULT_GOAL = 64
 const MAX_DAILY_OZ = 500 // sane ceiling so numbers can't grow forever
 const GOAL_BANNER_MS = 5000 // how long the "Goal reached!" pill stays up
@@ -194,6 +197,39 @@ function loadUnits() {
     return UNIT_ORDER.includes(raw) ? raw : 'oz'
   } catch {
     return 'oz'
+  }
+}
+
+// 'light' | 'dark' — more named theme packs may join this list later, but
+// these two are the only ones that actually change anything today.
+function loadTheme() {
+  try {
+    const raw = localStorage.getItem(THEME_STORAGE_KEY)
+    return raw === 'dark' ? 'dark' : 'light'
+  } catch {
+    return 'light'
+  }
+}
+
+// Whether the decorative floating bubbles render behind the dashboard —
+// purely cosmetic, on by default.
+function loadBubblesEnabled() {
+  try {
+    const raw = localStorage.getItem(BUBBLES_STORAGE_KEY)
+    return raw === null ? true : raw === 'true'
+  } catch {
+    return true
+  }
+}
+
+// Which body-text font is active — see the .font-choice-* rules in
+// index.css for what each of these actually maps to.
+function loadFont() {
+  try {
+    const raw = localStorage.getItem(FONT_STORAGE_KEY)
+    return raw || 'nunito'
+  } catch {
+    return 'nunito'
   }
 }
 
@@ -865,6 +901,12 @@ export default function App() {
   // every screen that renders a number, so changing it in Account updates
   // the cup, presets, step modal, and everywhere else at once.
   const [units, setUnits] = useState(loadUnits)
+  // Appearance settings — lifted up here (rather than living only inside
+  // Account) so they can actually apply document-wide: a .dark class and a
+  // .font-choice-* class on <html>, and gating the Bubbles background below.
+  const [theme, setTheme] = useState(loadTheme) // 'light' | 'dark'
+  const [bubblesEnabled, setBubblesEnabled] = useState(loadBubblesEnabled)
+  const [font, setFont] = useState(loadFont)
   // Quick-add preset amounts (oz), customizable from Account.
   const [presets, setPresets] = useState(loadPresets)
   // Per-drink enabled/step customization for the "Other drinks" floaters.
@@ -923,6 +965,39 @@ export default function App() {
       // storage unavailable — fail silently
     }
   }, [units])
+
+  // Persist + apply appearance settings. The .dark and .font-choice-* classes
+  // land on <html> so they affect the whole app (Insights, Account, sheets,
+  // everything) — not just whatever screen is currently mounted.
+  useEffect(() => {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // storage unavailable — fail silently
+    }
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BUBBLES_STORAGE_KEY, String(bubblesEnabled))
+    } catch {
+      // storage unavailable — fail silently
+    }
+  }, [bubblesEnabled])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FONT_STORAGE_KEY, font)
+    } catch {
+      // storage unavailable — fail silently
+    }
+    const root = document.documentElement
+    Array.from(root.classList).forEach((cls) => {
+      if (cls.startsWith('font-choice-')) root.classList.remove(cls)
+    })
+    if (font && font !== 'nunito') root.classList.add(`font-choice-${font}`)
+  }, [font])
 
   // Persist quick-add presets so custom amounts survive a reload.
   useEffect(() => {
@@ -1117,7 +1192,7 @@ export default function App() {
     <div className="min-h-full w-full bg-mist flex flex-col relative overflow-hidden">
       <div className="absolute -top-24 -left-16 w-64 h-64 rounded-full bg-aqua-light/25 blur-3xl pointer-events-none" />
       <div className="absolute -bottom-28 -right-16 w-72 h-72 rounded-full bg-coral-light/20 blur-3xl pointer-events-none" />
-      <Bubbles />
+      {bubblesEnabled && <Bubbles />}
 
       {/* top bar — insights, swipeable date pill, and account all in one row, same size */}
       <div className="flex items-center gap-2 px-4 pt-[max(1.25rem,env(safe-area-inset-top))] relative z-10">
@@ -1317,6 +1392,12 @@ export default function App() {
               drinkTypes={DRINK_TYPES}
               drinkSettings={drinkSettings}
               onDrinkSettingsChange={setDrinkSettings}
+              theme={theme}
+              onThemeChange={setTheme}
+              bubblesEnabled={bubblesEnabled}
+              onBubblesChange={setBubblesEnabled}
+              font={font}
+              onFontChange={setFont}
               onClose={closeOverlay}
             />
           </Suspense>
