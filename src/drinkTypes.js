@@ -25,17 +25,38 @@
 //   2. Add a line below, e.g. `{ id: 'wine', label: 'Wine', icon: Wine, color: '#7B2D42' },`
 // That's it — it'll auto-populate on next load in the swipe menu, Account,
 // and Insights.
-
-import { Coffee, Leaf, CupSoda, Milk } from 'lucide-react'
-
+import {
+  Coffee,
+  Leaf,
+  CupSoda,
+  Milk,
+  Wine,
+  Beer,
+  Martini,
+  GlassWater,
+  Zap,
+  Blend,
+  Sparkles,
+  Palmtree,
+  IceCreamCone,
+  Citrus,
+} from 'lucide-react'
 export const DRINK_TYPES = [
   { id: 'coffee', label: 'Coffee', icon: Coffee, color: '#6F4E37' },
   { id: 'tea', label: 'Tea', icon: Leaf, color: '#C17817' },
   { id: 'juice', label: 'Juice', icon: CupSoda, color: '#FF8C42' },
   { id: 'milk', label: 'Milk', icon: Milk, color: '#EADFC8' },
-  // { id: 'wine', label: 'Wine', icon: Wine, color: '#7B2D42' },
+  { id: 'wine', label: 'Wine', icon: Wine, color: '#7B2D42' },
+  { id: 'beer', label: 'Beer', icon: Beer, color: '#F2A93B' },
+  { id: 'cocktail', label: 'Cocktail', icon: Martini, color: '#C2185B' },
+  { id: 'soda', label: 'Soda', icon: GlassWater, color: '#4FC3D9' },
+  { id: 'energy_drink', label: 'Energy Drink', icon: Zap, color: '#2ECC71' },
+  { id: 'smoothie', label: 'Smoothie', icon: Blend, color: '#FF6F91' },
+  { id: 'kombucha', label: 'Kombucha', icon: Sparkles, color: '#8E7CC3' },
+  { id: 'coconut_water', label: 'Coconut Water', icon: Palmtree, color: '#2AA876' },
+  { id: 'hot_chocolate', label: 'Hot Chocolate', icon: IceCreamCone, color: '#5C3A21' },
+  { id: 'lemonade', label: 'Lemonade', icon: Citrus, color: '#F4D35E' },
 ]
-
 // Quick lookup from a stored hex color back to its drink type — used when a
 // cup marker or history entry only carries a color and needs to resolve
 // back to the drink that produced it.
