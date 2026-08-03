@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -10,7 +10,12 @@ import {
   Check,
   Sliders,
   GlassWater,
-  Palette,
+  Moon,
+  Sparkles,
+  Waves,
+  Type,
+  Download,
+  Upload,
   FileText,
   ShieldCheck,
   Lightbulb,
@@ -20,21 +25,63 @@ import {
 import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount, unitShort } from './units.js'
 
 const REMINDERS_STORAGE_KEY = 'ally-reminders'
-const THEME_STORAGE_KEY = 'ally-theme'
-// Storage keys owned by App.jsx (units/presets/drink settings/drink history)
-// — listed here too so sign-out can clear everything this screen touches.
+// Storage keys owned by App.jsx — listed here so sign-out and export/import
+// can reach everything this screen (indirectly) touches.
 const UNITS_STORAGE_KEY = 'ally-units'
 const PRESETS_STORAGE_KEY = 'ally-presets'
 const DRINK_SETTINGS_STORAGE_KEY = 'ally-drink-settings'
 const DRINK_HISTORY_STORAGE_KEY = 'ally-drink-history'
+const THEME_STORAGE_KEY = 'ally-theme'
+const BUBBLES_STORAGE_KEY = 'ally-bubbles'
+const FONT_STORAGE_KEY = 'ally-font'
+const HISTORY_STORAGE_KEY = 'ally-history'
+const STEP_STORAGE_KEY = 'ally-step'
+const GOAL_STORAGE_KEY = 'ally-goal'
+const ONBOARDED_STORAGE_KEY = 'ally-onboarded'
+const USER_STORAGE_KEY = 'ally-user'
+
+// Every localStorage key Ally writes to — the single list export/import and
+// sign-out all share, so adding a new persisted setting only means adding it
+// here once.
+const ALL_STORAGE_KEYS = [
+  ONBOARDED_STORAGE_KEY,
+  USER_STORAGE_KEY,
+  GOAL_STORAGE_KEY,
+  HISTORY_STORAGE_KEY,
+  STEP_STORAGE_KEY,
+  UNITS_STORAGE_KEY,
+  PRESETS_STORAGE_KEY,
+  DRINK_SETTINGS_STORAGE_KEY,
+  DRINK_HISTORY_STORAGE_KEY,
+  REMINDERS_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  BUBBLES_STORAGE_KEY,
+  FONT_STORAGE_KEY,
+]
 
 const INTERVAL_OPTIONS = [1, 2, 3, 4, 6]
 
-// Only "Light" actually does anything today — this is just the scaffold for
-// an Appearance section we'll build out with more options later.
+// Only Light and Dark actually do anything today — more named theme packs
+// can join this list later without touching anything else.
 const THEME_OPTIONS = [
   { id: 'light', label: 'Light', available: true },
-  { id: 'dark', label: 'Dark', available: false },
+  { id: 'dark', label: 'Dark', available: true },
+]
+
+// Body-text font choices. 'nunito' is the app's default and needs no CSS
+// override; every other id maps to a `.font-choice-<id>` rule in index.css
+// that swaps the font — add a font by adding both an entry here and a rule
+// there.
+const FONT_OPTIONS = [
+  { id: 'nunito', label: 'Nunito', sample: 'The quick brown fox', style: { fontFamily: "'Nunito', sans-serif" } },
+  { id: 'inter', label: 'Inter', sample: 'The quick brown fox', style: { fontFamily: "'Inter', sans-serif" } },
+  { id: 'serif', label: 'Lora', sample: 'The quick brown fox', style: { fontFamily: "'Lora', serif" } },
+  {
+    id: 'mono',
+    label: 'JetBrains Mono',
+    sample: 'The quick brown fox',
+    style: { fontFamily: "'JetBrains Mono', monospace" },
+  },
 ]
 
 // Quick links open in a new tab so nobody loses their place in the app.
@@ -61,15 +108,6 @@ function loadReminders() {
     // fall through to default
   }
   return { enabled: false, intervalHours: 2 }
-}
-
-function loadTheme() {
-  try {
-    const raw = localStorage.getItem(THEME_STORAGE_KEY)
-    return THEME_OPTIONS.some((t) => t.id === raw) ? raw : 'light'
-  } catch {
-    return 'light'
-  }
 }
 
 // Onboarding may store the name under a couple of different keys depending
@@ -113,6 +151,29 @@ function LinkRow({ icon: Icon, label, url }) {
       </span>
       <span className="flex-1 min-w-0 font-body font-bold text-ink text-sm">{label}</span>
       <ExternalLink className="w-3.5 h-3.5 text-ink/30 shrink-0" />
+    </button>
+  )
+}
+
+// An inline on/off row that doesn't need a sheet — flips immediately, no
+// separate Save step. Used for "Background animation".
+function ToggleRow({ icon: Icon, label, sublabel, checked, onToggle }) {
+  return (
+    <button onClick={onToggle} className="w-full flex items-center gap-3 px-4 py-4 text-left">
+      <span className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0">
+        <Icon className="w-4.5 h-4.5 text-aqua-deep" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block font-body font-bold text-ink text-sm">{label}</span>
+        {sublabel && <span className="block font-body text-xs text-inkSoft truncate">{sublabel}</span>}
+      </span>
+      <span className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${checked ? 'bg-aqua-deep' : 'bg-ink/15'}`}>
+        <motion.span
+          className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm"
+          animate={{ left: checked ? 22 : 2 }}
+          transition={{ type: 'spring', stiffness: 500, damping: 32 }}
+        />
+      </span>
     </button>
   )
 }
@@ -300,9 +361,9 @@ function UnitsSheet({ units, onSave, onClose }) {
   )
 }
 
-// First setting under Appearance. Only Light works today — Dark (and
-// whatever else lands here later) shows up already, greyed out and
-// labeled, so the section has somewhere to grow into.
+// Light/Dark — both fully functional now (applies a .dark class to <html>
+// from App.jsx). Named theme packs beyond these two live in "Special
+// themes" below instead of cluttering this list.
 function ThemeSheet({ theme, onSave, onClose }) {
   return (
     <SettingsSheet title="Theme" onClose={onClose}>
@@ -310,26 +371,57 @@ function ThemeSheet({ theme, onSave, onClose }) {
         {THEME_OPTIONS.map((opt) => (
           <button
             key={opt.id}
-            disabled={!opt.available}
             onClick={() => {
-              if (!opt.available) return
               onSave(opt.id)
               onClose()
             }}
             className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border-2 font-body font-bold text-sm ${
-              !opt.available
-                ? 'bg-mist/60 text-inkSoft/50 border-transparent cursor-not-allowed'
-                : theme === opt.id
-                  ? 'bg-aqua-deep text-white border-aqua-deep'
-                  : 'bg-mist text-inkSoft border-transparent'
+              theme === opt.id ? 'bg-aqua-deep text-white border-aqua-deep' : 'bg-mist text-inkSoft border-transparent'
             }`}
           >
             <span>{opt.label}</span>
-            {!opt.available ? (
-              <span className="text-[10px] font-bold uppercase tracking-wide">Coming soon</span>
-            ) : (
-              theme === opt.id && <Check className="w-4 h-4" />
-            )}
+            {theme === opt.id && <Check className="w-4 h-4" />}
+          </button>
+        ))}
+      </div>
+    </SettingsSheet>
+  )
+}
+
+// Placeholder for named theme packs beyond plain Light/Dark — everything's
+// locked for now, just here so the section has somewhere to grow into.
+function SpecialThemesSheet({ onClose }) {
+  return (
+    <SettingsSheet title="Special themes" onClose={onClose}>
+      <p className="font-body text-sm text-inkSoft text-center leading-relaxed">
+        More themes are on the way — check back soon.
+      </p>
+    </SettingsSheet>
+  )
+}
+
+function FontSheet({ font, onSave, onClose }) {
+  return (
+    <SettingsSheet title="Font" onClose={onClose}>
+      <div className="flex flex-col gap-2">
+        {FONT_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => {
+              onSave(opt.id)
+              onClose()
+            }}
+            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl border-2 ${
+              font === opt.id ? 'bg-aqua-deep text-white border-aqua-deep' : 'bg-mist text-inkSoft border-transparent'
+            }`}
+          >
+            <span className="flex flex-col items-start gap-0.5 min-w-0">
+              <span className="font-body font-bold text-sm">{opt.label}</span>
+              <span className="text-sm truncate" style={opt.style}>
+                {opt.sample}
+              </span>
+            </span>
+            {font === opt.id && <Check className="w-4 h-4 shrink-0" />}
           </button>
         ))}
       </div>
@@ -498,27 +590,26 @@ export default function Account({
   drinkTypes = [],
   drinkSettings = {},
   onDrinkSettingsChange,
+  theme = 'light',
+  onThemeChange,
+  bubblesEnabled = true,
+  onBubblesChange,
+  font = 'nunito',
+  onFontChange,
   onClose,
   onSignOut,
 }) {
-  const [openSheet, setOpenSheet] = useState(null) // null | 'goal' | 'reminders' | 'units' | 'presets' | 'drinks' | 'theme'
+  // null | 'goal' | 'reminders' | 'units' | 'presets' | 'drinks' | 'theme' | 'special-themes' | 'font'
+  const [openSheet, setOpenSheet] = useState(null)
   const [reminders, setReminders] = useState(loadReminders)
-  const [theme, setTheme] = useState(loadTheme)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+  const [importState, setImportState] = useState(null) // null | 'error' | 'done'
+  const fileInputRef = useRef(null)
 
   const saveReminders = (next) => {
     setReminders(next)
     try {
       localStorage.setItem(REMINDERS_STORAGE_KEY, JSON.stringify(next))
-    } catch {
-      // storage unavailable — setting still applies for this session
-    }
-  }
-
-  const saveTheme = (next) => {
-    setTheme(next)
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, next)
     } catch {
       // storage unavailable — setting still applies for this session
     }
@@ -530,17 +621,7 @@ export default function Account({
       return
     }
     try {
-      localStorage.removeItem('ally-onboarded')
-      localStorage.removeItem('ally-user')
-      localStorage.removeItem('ally-goal')
-      localStorage.removeItem('ally-history')
-      localStorage.removeItem('ally-step')
-      localStorage.removeItem(REMINDERS_STORAGE_KEY)
-      localStorage.removeItem(THEME_STORAGE_KEY)
-      localStorage.removeItem(UNITS_STORAGE_KEY)
-      localStorage.removeItem(PRESETS_STORAGE_KEY)
-      localStorage.removeItem(DRINK_SETTINGS_STORAGE_KEY)
-      localStorage.removeItem(DRINK_HISTORY_STORAGE_KEY)
+      ALL_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key))
     } catch {
       // storage unavailable — still hand off to the parent to reset state
     }
@@ -549,6 +630,69 @@ export default function Account({
     } else {
       window.location.reload()
     }
+  }
+
+  // Bundles every key in ALL_STORAGE_KEYS into one downloadable JSON file —
+  // a full backup of everything Ally has stored on this device.
+  const handleExport = () => {
+    try {
+      const data = {}
+      ALL_STORAGE_KEYS.forEach((key) => {
+        const value = localStorage.getItem(key)
+        if (value !== null) data[key] = value
+      })
+      const payload = { app: 'Ally', version: 1, exportedAt: new Date().toISOString(), data }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const dateStamp = new Date().toISOString().slice(0, 10)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ally-backup-${dateStamp}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setImportState('error')
+    }
+  }
+
+  const handleImportClick = () => {
+    setImportState(null)
+    fileInputRef.current?.click()
+  }
+
+  const handleImportFile = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!window.confirm('Importing will replace your current data on this device. Continue?')) {
+      e.target.value = ''
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result))
+        const data = parsed?.data && typeof parsed.data === 'object' ? parsed.data : parsed
+        let wroteAny = false
+        ALL_STORAGE_KEYS.forEach((key) => {
+          const value = data?.[key]
+          if (typeof value === 'string') {
+            localStorage.setItem(key, value)
+            wroteAny = true
+          }
+        })
+        if (!wroteAny) throw new Error('No recognizable Ally data in this file')
+        // Full reload so every piece of state re-initializes from the
+        // freshly-written localStorage, same as sign-out does.
+        window.location.reload()
+      } catch {
+        setImportState('error')
+      }
+    }
+    reader.onerror = () => setImportState('error')
+    reader.readAsText(file)
+    e.target.value = ''
   }
 
   const name = getUserName(user)
@@ -626,12 +770,48 @@ export default function Account({
 
         <Section title="Appearance">
           <SettingsRow
-            icon={Palette}
+            icon={Moon}
             label="Theme"
             value={THEME_OPTIONS.find((t) => t.id === theme)?.label || 'Light'}
             onClick={() => setOpenSheet('theme')}
           />
+          <SettingsRow
+            icon={Sparkles}
+            label="Special themes"
+            value="Coming soon"
+            onClick={() => setOpenSheet('special-themes')}
+          />
+          <ToggleRow
+            icon={Waves}
+            label="Background animation"
+            sublabel="Floating bubbles behind the dashboard"
+            checked={bubblesEnabled}
+            onToggle={() => onBubblesChange?.(!bubblesEnabled)}
+          />
+          <SettingsRow
+            icon={Type}
+            label="Font"
+            value={FONT_OPTIONS.find((f) => f.id === font)?.label || 'Nunito'}
+            onClick={() => setOpenSheet('font')}
+          />
         </Section>
+
+        <Section title="Your data">
+          <SettingsRow icon={Download} label="Export data" value="Download a backup file" onClick={handleExport} />
+          <SettingsRow
+            icon={Upload}
+            label="Import data"
+            value={importState === 'error' ? "Couldn't read that file — try again" : 'Restore from a backup file'}
+            onClick={handleImportClick}
+          />
+        </Section>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleImportFile}
+          className="hidden"
+        />
 
         <Section title="More">
           {QUICK_LINKS.map((link) => (
@@ -698,7 +878,11 @@ export default function Account({
           />
         )}
         {openSheet === 'theme' && (
-          <ThemeSheet key="theme" theme={theme} onSave={saveTheme} onClose={() => setOpenSheet(null)} />
+          <ThemeSheet key="theme" theme={theme} onSave={(next) => onThemeChange?.(next)} onClose={() => setOpenSheet(null)} />
+        )}
+        {openSheet === 'special-themes' && <SpecialThemesSheet key="special-themes" onClose={() => setOpenSheet(null)} />}
+        {openSheet === 'font' && (
+          <FontSheet key="font" font={font} onSave={(next) => onFontChange?.(next)} onClose={() => setOpenSheet(null)} />
         )}
       </AnimatePresence>
     </motion.div>
