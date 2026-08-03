@@ -78,7 +78,7 @@ function SettingsSheet({ title, onClose, children }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm px-4"
+      className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/40 backdrop-blur-sm px-4"
       onClick={onClose}
     >
       <motion.div
@@ -87,7 +87,7 @@ function SettingsSheet({ title, onClose, children }) {
         exit={{ y: 40, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 320, damping: 28 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-3xl shadow-soft p-6 w-full max-w-xs mb-[max(1.5rem,env(safe-area-inset-bottom))] sm:mb-0 relative max-h-[85vh] overflow-y-auto"
+        className="bg-white rounded-3xl shadow-soft p-6 w-full max-w-xs mb-[max(1.5rem,env(safe-area-inset-bottom))] sm:mb-0 relative max-h-[85vh] overflow-y-auto [-webkit-overflow-scrolling:touch] [overscroll-behavior:contain]"
       >
         <button
           onClick={onClose}
@@ -531,14 +531,14 @@ export default function Account({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-40 bg-mist flex flex-col"
+      className="absolute inset-0 z-40 bg-mist flex flex-col"
     >
       <motion.div
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: -20, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-        className="flex-1 flex flex-col overflow-y-auto min-h-0 px-6 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]"
+        className="flex-1 flex flex-col overflow-y-auto min-h-0 px-6 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] [overscroll-behavior:contain]"
       >
         <div className="flex items-center justify-between mb-8">
           <h1 className="font-hand text-4xl text-ink">Your account</h1>
