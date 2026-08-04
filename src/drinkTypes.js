@@ -40,6 +40,18 @@ import {
   Palmtree,
   IceCreamCone,
   Citrus,
+  Rocket,
+  Flame,
+  Activity,
+  Droplet,
+  Dumbbell,
+  IceCream,
+  Sprout,
+  Snowflake,
+  Waves,
+  Beaker,
+  PartyPopper,
+  Candy,
 } from 'lucide-react'
 export const DRINK_TYPES = [
   { id: 'coffee', label: 'Coffee', icon: Coffee, color: '#6F4E37' },
@@ -56,6 +68,18 @@ export const DRINK_TYPES = [
   { id: 'coconut_water', label: 'Coconut Water', icon: Palmtree, color: '#2AA876' },
   { id: 'hot_chocolate', label: 'Hot Chocolate', icon: IceCreamCone, color: '#5C3A21' },
   { id: 'lemonade', label: 'Lemonade', icon: Citrus, color: '#F4D35E' },
+  { id: 'red_bull', label: 'Red Bull', icon: Rocket, color: '#00285E' },
+  { id: 'monster', label: 'Monster', icon: Flame, color: '#00A651' },
+  { id: 'gatorade', label: 'Gatorade', icon: Activity, color: '#0057B8' },
+  { id: 'liquid_iv', label: 'Liquid IV', icon: Droplet, color: '#FFB400' },
+  { id: 'protein_shake', label: 'Protein Shake', icon: Dumbbell, color: '#C68642' },
+  { id: 'milkshake', label: 'Milkshake', icon: IceCream, color: '#F8C8DC' },
+  { id: 'matcha', label: 'Matcha', icon: Sprout, color: '#7CB342' },
+  { id: 'iced_coffee', label: 'Iced Coffee', icon: Snowflake, color: '#6B4423' },
+  { id: 'sparkling_water', label: 'Sparkling Water', icon: Waves, color: '#A0D8EF' },
+  { id: 'root_beer', label: 'Root Beer', icon: Beaker, color: '#2B1B17' },
+  { id: 'champagne', label: 'Champagne', icon: PartyPopper, color: '#F0C987' },
+  { id: 'chocolate_milk', label: 'Chocolate Milk', icon: Candy, color: '#7A4B2A' },
 ]
 // Quick lookup from a stored hex color back to its drink type — used when a
 // cup marker or history entry only carries a color and needs to resolve
