@@ -1,4 +1,4 @@
-import { useMemo, useState, memo } from 'react'
+import { useMemo, useState, useEffect, memo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   X,
@@ -10,8 +10,23 @@ import {
   Target,
   ChevronLeft,
   ChevronRight,
+  Share2,
+  Lock,
 } from 'lucide-react'
 import { UNIT_DEFS, UNIT_ORDER, ozToUnit, formatAmount } from './units.js'
+import { ACHIEVEMENTS } from './achievements.js'
+
+const ACHIEVEMENTS_SEEN_KEY = 'ally-achievements-seen'
+
+function loadSeenAchievements() {
+  try {
+    const raw = localStorage.getItem(ACHIEVEMENTS_SEEN_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 const WATER_COLOR = '#1C93D1' // matches the ring accent used on the Insights button in the top bar
 
@@ -115,9 +130,15 @@ const DonutChart = memo(function DonutChart({ segments, size = 148, thickness = 
   )
 })
 
-const StatCard = memo(function StatCard({ icon: Icon, label, value, sub }) {
+const StatCard = memo(function StatCard({ icon: Icon, label, value, sub, index = 0 }) {
   return (
-    <div className="bg-white rounded-2xl shadow-card px-3.5 py-3 flex items-start gap-2.5">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.05 * index, type: 'spring', stiffness: 340, damping: 26 }}
+      whileTap={{ scale: 0.97 }}
+      className="bg-white rounded-2xl shadow-card px-3.5 py-3 flex items-start gap-2.5"
+    >
       <div className="w-8 h-8 rounded-full bg-mist flex items-center justify-center shrink-0 mt-0.5">
         <Icon className="w-4 h-4 text-coral-deep" />
       </div>
@@ -128,7 +149,7 @@ const StatCard = memo(function StatCard({ icon: Icon, label, value, sub }) {
         <p className="font-hand text-xl text-ink leading-tight mt-0.5 truncate">{value}</p>
         {sub && <p className="font-body text-[10px] text-inkSoft/80 leading-tight">{sub}</p>}
       </div>
-    </div>
+    </motion.div>
   )
 })
 
@@ -139,19 +160,141 @@ const UnitSwitcher = memo(function UnitSwitcher({ units, onChange }) {
   return (
     <div className="flex bg-mist rounded-full p-1 gap-0.5">
       {UNIT_ORDER.map((u) => (
-        <button
+        <motion.button
           key={u}
+          whileTap={{ scale: 0.9 }}
           onClick={() => onChange(u)}
           className={`px-2.5 py-1 rounded-full font-body text-[11px] font-bold uppercase tracking-wide transition-colors ${
             units === u ? 'bg-white text-ink shadow-card' : 'text-inkSoft'
           }`}
         >
           {UNIT_DEFS[u]?.short || u}
-        </button>
+        </motion.button>
       ))}
     </div>
   )
 })
+
+// One tile in the Trophies & Badges grid — filled with its color when
+// earned, dimmed with a lock badge otherwise. Tapping either opens the
+// AchievementCard popup below for details.
+const AchievementBadge = memo(function AchievementBadge({ achievement, earned, onTap, index }) {
+  const Icon = achievement.icon
+  return (
+    <motion.button
+      initial={{ opacity: 0, scale: 0.7 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 22, delay: 0.05 + index * 0.04 }}
+      whileTap={{ scale: 0.88 }}
+      onClick={onTap}
+      className="flex flex-col items-center gap-1.5"
+    >
+      <span
+        className="w-12 h-12 rounded-full flex items-center justify-center relative"
+        style={{ backgroundColor: earned ? achievement.color : '#EFF7F7' }}
+      >
+        <Icon className={`w-5 h-5 ${earned ? 'text-white' : 'text-inkSoft/40'}`} />
+        {!earned && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-4.5 h-4.5 rounded-full bg-white shadow-card flex items-center justify-center">
+            <Lock className="w-2.5 h-2.5 text-inkSoft/60" />
+          </span>
+        )}
+      </span>
+      <span
+        className={`font-body text-[9px] font-bold text-center leading-tight ${earned ? 'text-ink' : 'text-inkSoft/50'}`}
+      >
+        {achievement.label}
+      </span>
+    </motion.button>
+  )
+})
+
+// Popup card for one achievement — used both when something's freshly
+// earned (celebratory, shows a Share button) and when tapping any badge in
+// the grid to see what it is (locked ones show a hint instead of Share).
+function AchievementCard({ achievement, earned, justEarned, onClose }) {
+  const Icon = achievement.icon
+  const [shareState, setShareState] = useState('idle') // 'idle' | 'copied'
+
+  const handleShare = async () => {
+    const text = `I just earned "${achievement.label}" in Ally 💧 — ${achievement.description}`
+    try {
+      if (navigator.share) {
+        await navigator.share({ text })
+        return
+      }
+    } catch {
+      // user cancelled the native share sheet — nothing else to do
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setShareState('copied')
+      setTimeout(() => setShareState('idle'), 1600)
+    } catch {
+      // clipboard unavailable — silently give up, nothing destructive happened
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="absolute inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm px-6"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.85, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 8 }}
+        transition={{ type: 'spring', stiffness: 340, damping: 26 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-3xl shadow-soft p-6 w-full max-w-xs relative text-center"
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 w-7 h-7 rounded-full bg-mist flex items-center justify-center"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4 text-inkSoft" />
+        </button>
+
+        {justEarned && (
+          <p className="font-body text-[11px] font-bold uppercase tracking-widest text-coral-deep mb-3">
+            New badge!
+          </p>
+        )}
+
+        <motion.span
+          initial={{ scale: 0.6, rotate: -8 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: 'spring', stiffness: 260, damping: 14, delay: 0.1 }}
+          className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4"
+          style={{ backgroundColor: earned ? achievement.color : '#EFF7F7' }}
+        >
+          <Icon className={`w-9 h-9 ${earned ? 'text-white' : 'text-inkSoft/40'}`} />
+        </motion.span>
+
+        <p className="font-hand text-2xl text-ink mb-1.5">{achievement.label}</p>
+        <p className="font-body text-sm text-inkSoft leading-relaxed mb-5">{achievement.description}</p>
+
+        {earned ? (
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={handleShare}
+            className="w-full flex items-center justify-center gap-2 bg-aqua-deep text-white font-body font-bold py-3 rounded-full"
+          >
+            <Share2 className="w-4 h-4" />
+            {shareState === 'copied' ? 'Copied!' : 'Share'}
+          </motion.button>
+        ) : (
+          <p className="font-body text-xs font-bold text-inkSoft/70 uppercase tracking-wide">Keep going to unlock</p>
+        )}
+      </motion.div>
+    </motion.div>
+  )
+}
 
 /* --------------------------------- Insights --------------------------------- */
 
@@ -221,8 +364,61 @@ export default function Insights({
       avg: total / entries.length,
       daysTracked: entries.length,
       goalMetDays,
+      totalAllTime: total,
     }
   }, [history, goal])
+
+  /* ---- achievements: evaluate every badge in achievements.js against real stats ---- */
+  const achievementStats = useMemo(
+    () => ({
+      streak,
+      longestStreak: stats.longestStreak,
+      daysTracked: stats.daysTracked,
+      goalMetDays: stats.goalMetDays,
+      totalAllTime: stats.totalAllTime || 0,
+      mostDayAmount: stats.mostDay?.amount || 0,
+      drinkTypesTried: pieSegments.filter((s) => s.value > 0).length,
+      goal,
+    }),
+    [streak, stats, pieSegments, goal]
+  )
+
+  const earnedIds = useMemo(
+    () => ACHIEVEMENTS.filter((a) => a.check(achievementStats)).map((a) => a.id),
+    [achievementStats]
+  )
+
+  // Which badges have already been shown as "new" — so re-opening Insights
+  // doesn't re-celebrate something earned days ago. Newly-earned ones queue
+  // up and are shown one at a time via the popup below.
+  const [seenIds, setSeenIds] = useState(loadSeenAchievements)
+  const [celebrationQueue, setCelebrationQueue] = useState([])
+  const [viewingBadge, setViewingBadge] = useState(null) // tap-to-view any badge, earned or not
+
+  useEffect(() => {
+    const newlyEarned = earnedIds.filter((id) => !seenIds.includes(id))
+    if (newlyEarned.length) {
+      setCelebrationQueue((q) => [...q, ...newlyEarned.filter((id) => !q.includes(id))])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [earnedIds])
+
+  const dismissCelebration = () => {
+    const [shown, ...rest] = celebrationQueue
+    if (shown) {
+      const nextSeen = seenIds.includes(shown) ? seenIds : [...seenIds, shown]
+      setSeenIds(nextSeen)
+      try {
+        localStorage.setItem(ACHIEVEMENTS_SEEN_KEY, JSON.stringify(nextSeen))
+      } catch {
+        // storage unavailable — celebration just won't be remembered as seen
+      }
+    }
+    setCelebrationQueue(rest)
+  }
+
+  const celebratingId = celebrationQueue[0] || null
+  const celebratingAchievement = celebratingId ? ACHIEVEMENTS.find((a) => a.id === celebratingId) : null
 
   /* ---- calendar ---- */
   const [calMonth, setCalMonth] = useState(() => {
@@ -401,9 +597,27 @@ export default function Insights({
 
         {/* stat cards */}
         <div className="grid grid-cols-2 gap-3 mb-6">
-          {statCards.map((card) => (
-            <StatCard key={card.label} {...card} />
+          {statCards.map((card, i) => (
+            <StatCard key={card.label} {...card} index={i} />
           ))}
+        </div>
+
+        {/* trophies & badges — see achievements.js to add more */}
+        <div className="bg-white rounded-3xl shadow-card p-5 mb-6">
+          <p className="font-body text-xs font-bold uppercase tracking-wider text-inkSoft/70 mb-4">
+            Trophies &amp; badges
+          </p>
+          <div className="grid grid-cols-4 gap-x-2 gap-y-4">
+            {ACHIEVEMENTS.map((achievement, i) => (
+              <AchievementBadge
+                key={achievement.id}
+                achievement={achievement}
+                earned={earnedIds.includes(achievement.id)}
+                index={i}
+                onTap={() => setViewingBadge(achievement)}
+              />
+            ))}
+          </div>
         </div>
 
         {/* calendar */}
@@ -519,6 +733,30 @@ export default function Insights({
           </AnimatePresence>
         </div>
       </motion.div>
+
+      <AnimatePresence>
+        {celebratingAchievement && (
+          <AchievementCard
+            key={`celebrate-${celebratingAchievement.id}`}
+            achievement={celebratingAchievement}
+            earned
+            justEarned
+            onClose={dismissCelebration}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {!celebratingAchievement && viewingBadge && (
+          <AchievementCard
+            key={`view-${viewingBadge.id}`}
+            achievement={viewingBadge}
+            earned={earnedIds.includes(viewingBadge.id)}
+            justEarned={false}
+            onClose={() => setViewingBadge(null)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
